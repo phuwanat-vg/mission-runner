@@ -1,0 +1,6 @@
+# Keep LF in the repository and on checkout: this code runs on Linux robots,
+# and CRLF breaks Python shebangs, launch files and systemd units there.
+* text=auto eol=lf
+*.png binary
+*.pgm binary
+*.ico binary

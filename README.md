@@ -25,12 +25,12 @@ can be exported as a plain Python script.
 |---|---|
 | [`runner/`](runner/) | `mission_runner` ROS 2 (ament_python) package: interpreter, dispatcher, connectors, HTTP/WS API, web page. Runs without ROS in `--sim` mode. |
 | [`mission_msgs/`](mission_msgs/) | `RunMission` service/action and `Answer` service (optional; the runner works without it). |
-| [`editor/`](editor/) | Web mission editor (Vite + TypeScript), served by the runner. Still works, but **iViz's Route mode is where missions are built now** — see [`docs/iviz-route-mode.md`](docs/iviz-route-mode.md). |
+| [`editor/`](editor/) | Web mission editor (Vite + TypeScript), served by the runner. Still works, but **[Mission Builder](https://github.com/phuwanat-vg/mission-builder) is where missions are built now**. |
 | [`examples/`](examples/) | Example missions (the four sample scripts as missions, plus PLC pickup, patrol, charging, e-stop) and `sites.json`. |
 | [`docs/mission-format.md`](docs/mission-format.md) | The mission format: steps, triggers, policies, expressions. |
 | [`docs/runner-api.md`](docs/runner-api.md) | HTTP, WebSocket and ROS interfaces of the runner. |
 | **Mission Builder** ([phuwanat-vg/mission-builder](https://github.com/phuwanat-vg/mission-builder)) | The Windows desktop application for building missions: the mission tree, the map and the route graph, maps, deploy, run and export. See [`docs/mission-builder-app.md`](docs/mission-builder-app.md). |
-| [`docs/iviz-route-mode.md`](docs/iviz-route-mode.md) | **Route mode in iViz**: drawing the route graph, stops and their actions, over one foxglove_bridge connection. |
+| [`docs/iviz-route-mode.md`](docs/iviz-route-mode.md) | **Route mode in iViz** (parked: the button is greyed out in iViz 0.1.0): drawing the route graph, stops and their actions, over one foxglove_bridge connection. |
 | [`docs/first-run-on-robot.md`](docs/first-run-on-robot.md) | **Checklist for the first run on real hardware**: install, start order, what to check at each step, what usually goes wrong. |
 | [`docs/editor-spec.md`](docs/editor-spec.md) | Web editor design and behavior (legacy). |
 
