@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waspindustry.dev/schemas/mission/1/sites.schema.json",
+  "title": "Sites",
+  "description": "Named locations grouped by map. Missions reference sites by name so they stay portable across buildings.",
+  "type": "object",
+  "required": ["schema", "maps"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "sites/1" },
+    "default_map": { "type": "string" },
+    "maps": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "file": { "type": "string", "description": "Absolute path of the map .yaml on the robot (used by nav.change_map)." },
+          "frame": { "type": "string", "default": "map" },
+          "sites": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["x", "y"],
+              "properties": {
+                "x": { "type": "number" },
+                "y": { "type": "number" },
+                "yaw_deg": { "type": "number", "default": 0 },
+                "kind": { "type": "string", "enum": ["station", "dock", "waypoint", "home"], "default": "station" },
+                "dock_id": { "type": "string" },
+                "dock_type": { "type": "string" },
+                "notes": { "type": "string" }
+              }
+            }
+          },
+          "edges": {
+            "type": "array",
+            "description": "The route graph for this map. Nodes are the sites above; an edge is a lane the robot is allowed to drive. Missions that use nav.follow_route only travel along these edges.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["from", "to"],
+              "properties": {
+                "from": { "type": "string", "description": "Site name." },
+                "to": { "type": "string", "description": "Site name." },
+                "bidirectional": { "type": "boolean", "default": true, "description": "false makes it one-way, from -> to." },
+                "speed_mps": { "type": "number", "exclusiveMinimum": 0, "description": "Optional cap while driving this lane." },
+                "blocked": { "type": "boolean", "default": false, "description": "Temporarily closed; the planner routes around it." },
+                "cost": { "type": "number", "exclusiveMinimum": 0, "description": "Multiplies the length when choosing a route (1 = neutral)." },
+                "notes": { "type": "string" }
+              }
+            }
+          },
+          "zones": {
+            "type": "object",
+            "description": "Named areas drawn on this map. They are exported as Nav2 costmap filter masks and can be read from mission expressions with in_zone('name').",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["polygon"],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": ["keepout", "speed_limit", "preferred", "work"],
+                  "default": "work",
+                  "description": "keepout: the planner may not enter. speed_limit: the controller is capped at speed_mps inside. preferred: drawn only, for the operator. work: a named area used by missions and expressions."
+                },
+                "polygon": {
+                  "type": "array",
+                  "minItems": 3,
+                  "description": "Closed polygon in map coordinates, [[x, y], ...].",
+                  "items": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": { "type": "number" }
+                  }
+                },
+                "speed_mps": { "type": "number", "exclusiveMinimum": 0, "description": "speed_limit zones: the cap inside the polygon." },
+                "color": { "type": "string", "description": "Optional #rrggbb override for the editor." },
+                "notes": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

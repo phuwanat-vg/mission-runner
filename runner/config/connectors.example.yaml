@@ -1,0 +1,30 @@
+# Copy to <home>/connectors.yaml. Missions reference connectors by name;
+# secrets come from environment variables, never from mission files.
+
+connectors:
+  broker:                      # used by examples/mqtt_goal_server.json
+    type: mqtt
+    host: localhost            # local mosquitto on the robot (bridge it to the cloud in mosquitto.conf)
+    port: 1883
+    tls: false
+    username_env: MQTT_USER    # read from the environment (systemd: EnvironmentFile=)
+    password_env: MQTT_PASS
+    client_id: wasp-01
+    qos: 1
+    will:   { topic: robot/state, payload: OFFLINE, retain: true }
+    online: { topic: robot/state, payload: READY,   retain: true }
+
+  # hivemq:
+  #   type: mqtt
+  #   host: xxxxxxxx.s1.eu.hivemq.cloud
+  #   port: 8883
+  #   tls: true
+  #   username_env: HIVEMQ_USER
+  #   password_env: HIVEMQ_PASS
+
+  plc1:                        # used by examples/pickup_job.json (needs: pip install pymodbus)
+    type: modbus_tcp
+    host: 192.168.1.50
+    port: 502
+    unit: 1
+    timeout_s: 2

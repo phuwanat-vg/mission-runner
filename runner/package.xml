@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mission_runner</name>
+  <version>0.1.0</version>
+  <description>Executes declarative missions (mission/1 JSON) against Nav2: triggers, interrupts, flows, HTTP/WS API and a web page. Runs without ROS in --sim mode.</description>
+  <maintainer email="kaikangofusan@gmail.com">Wasp Industry</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>nav2_simple_commander</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>tf2_ros_py</exec_depend>
+  <exec_depend>rosidl_runtime_py</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>python3-aiohttp</exec_depend>
+  <exec_depend>python3-jsonschema</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-paho-mqtt</exec_depend>
+  <exec_depend>python3-croniter</exec_depend>
+  <exec_depend condition="$ROS_DISTRO != ''">mission_msgs</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

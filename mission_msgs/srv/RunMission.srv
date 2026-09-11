@@ -1,0 +1,7 @@
+# Start a mission by name. inputs_json is a JSON object of mission inputs, e.g. {"pickup": "Conveyor1"}.
+string name
+string inputs_json
+---
+bool accepted
+string run_id
+string message

@@ -1,0 +1,6 @@
+# Answer the pending ask_user prompt (see /mission/state -> prompt).
+string prompt_id
+string answer
+---
+bool ok
+string message

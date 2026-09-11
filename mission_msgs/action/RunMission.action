@@ -1,0 +1,17 @@
+# Goal: start a mission and follow it until it finishes. Cancelling the goal cancels the run.
+string name
+string inputs_json
+---
+# Result
+bool success
+string status        # succeeded | failed | canceled | rejected
+string run_id
+string result_json
+string message
+---
+# Feedback
+string run_id
+string step_id
+string step_name
+string status        # running | paused | suspended
+string json          # {"feedback": {...}, "path": [...]}

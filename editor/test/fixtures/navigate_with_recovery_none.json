@@ -1,0 +1,5 @@
+{
+  "template": "navigate_with_recovery",
+  "retries": 0,
+  "recoveries": []
+}

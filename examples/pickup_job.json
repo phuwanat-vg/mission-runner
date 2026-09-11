@@ -1,0 +1,57 @@
+{
+  "schema": "mission/1",
+  "name": "pickup_job",
+  "title": "Pickup job (PLC)",
+  "description": "Runs all day without an operator: a PLC coil, a ROS action or an HTTP call starts a pickup; the robot waits for the conveyor, drops at a rack, then asks whether to do another round.",
+  "policy": "queue",
+  "priority": 50,
+  "inputs": {
+    "pickup": { "type": "site", "default": "Conveyor1", "label": "Pickup site" },
+    "drop": { "type": "site", "default": "Rack3", "label": "Drop site" }
+  },
+  "vars": { "rounds": 0 },
+  "triggers": [
+    { "id": "plc_start", "type": "modbus.poll", "connector": "plc1", "kind": "coil", "address": 100, "when": "payload.value", "edge": "rising", "policy": "queue", "priority": 50 },
+    { "id": "webhook", "type": "http.webhook", "path": "pickup", "set": { "pickup": "payload.pickup", "drop": "payload.drop" }, "policy": "queue" }
+  ],
+  "interrupts": [
+    {
+      "id": "low_battery",
+      "type": "ros.topic",
+      "topic": "/battery_state",
+      "when": "payload.percentage < 0.2",
+      "edge": "rising",
+      "debounce_s": 10,
+      "run": "go_charge",
+      "policy": "interrupt_and_resume",
+      "priority": 90
+    },
+    { "id": "estop_button", "type": "gpio.input", "pin": 17, "gpio_edge": "falling", "run": "emergency_stop", "policy": "preempt", "priority": 100 }
+  ],
+  "flow": [
+    { "id": "wait", "type": "nav.wait_active" },
+    {
+      "id": "again",
+      "type": "loop",
+      "body": [
+        { "id": "to_pickup", "type": "nav.go_to_pose", "pose": "$pickup", "behavior_tree": { "template": "navigate_with_recovery", "retries": 4 } },
+        {
+          "id": "wait_loaded",
+          "type": "wait_event",
+          "source": { "type": "modbus.poll", "connector": "plc1", "kind": "coil", "address": 101, "when": "payload.value", "edge": "rising" },
+          "timeout_s": 120,
+          "on_timeout": "abort"
+        },
+        { "id": "to_drop", "type": "nav.go_to_pose", "pose": "$drop", "on_fail": { "retry": 2, "before_retry": [{ "type": "nav.clear_costmap" }] } },
+        { "id": "plc_done", "type": "modbus.write", "connector": "plc1", "kind": "coil", "address": 102, "value": true },
+        { "id": "count", "type": "set", "var": "rounds", "value": "${rounds + 1}" },
+        { "id": "ask", "type": "ask_user", "text": "Round ${rounds} done. Do another?", "options": ["Yes", "No"], "timeout_s": 30, "default": "Yes", "out": "answer" },
+        { "id": "stop_if_no", "type": "if", "condition": "answer.value == 'No'", "then": [{ "type": "break" }] }
+      ]
+    },
+    { "id": "home", "type": "nav.go_to_pose", "pose": "Home" }
+  ],
+  "on_abort": [
+    { "type": "modbus.write", "connector": "plc1", "kind": "coil", "address": 103, "value": true }
+  ]
+}

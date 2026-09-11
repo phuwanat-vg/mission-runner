@@ -1,0 +1,44 @@
+{
+  "schema": "mission/1",
+  "name": "patrol",
+  "title": "Patrol A-B-C-D",
+  "description": "Equivalent of waypoint.py, using named sites and a nightly schedule. Loops `rounds` times, then returns home.",
+  "policy": "reject_if_busy",
+  "priority": 30,
+  "inputs": {
+    "rounds": { "type": "number", "default": 1, "label": "Rounds" }
+  },
+  "triggers": [
+    { "id": "nightly", "type": "timer.cron", "cron": "0 22 * * *", "policy": "reject_if_busy", "priority": 30, "set": { "rounds": "3" } }
+  ],
+  "interrupts": [
+    {
+      "id": "low_battery",
+      "type": "ros.topic",
+      "topic": "/battery_state",
+      "msg_type": "sensor_msgs/msg/BatteryState",
+      "when": "payload.percentage < 0.2",
+      "edge": "rising",
+      "debounce_s": 10,
+      "run": "go_charge",
+      "policy": "interrupt_and_resume",
+      "priority": 90
+    }
+  ],
+  "flow": [
+    { "id": "wait", "type": "nav.wait_active" },
+    {
+      "id": "rounds",
+      "type": "loop",
+      "count": "$rounds",
+      "body": [
+        { "id": "lap", "type": "nav.follow_waypoints", "poses": ["A", "B", "C", "D"], "on_fail": { "retry": 1, "then": "continue" } },
+        { "id": "say", "type": "log", "text": "Lap done" }
+      ]
+    },
+    { "id": "home", "type": "nav.go_to_pose", "pose": "Home" }
+  ],
+  "on_abort": [
+    { "type": "log", "level": "warn", "text": "Patrol aborted" }
+  ]
+}

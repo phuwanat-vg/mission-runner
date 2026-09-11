@@ -1,0 +1,11 @@
+aiohttp>=3.8
+jsonschema>=4.0
+PyYAML
+paho-mqtt
+croniter
+# optional integrations
+# pymodbus>=3.5
+# gpiozero
+# test
+pytest
+pytest-asyncio

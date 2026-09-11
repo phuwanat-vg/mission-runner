@@ -1,0 +1,41 @@
+{
+  "schema": "mission/1",
+  "name": "mqtt_goal_server",
+  "title": "MQTT goal server",
+  "description": "Equivalent of p2p_mqtt.py: every message on robot/goal starts a drive to {x, y, yaw}; a newer goal preempts the current one; state is published with retain.",
+  "inputs": {
+    "goal": { "type": "json", "required": true, "description": "{x, y, yaw}" }
+  },
+  "triggers": [
+    {
+      "id": "mqtt_goal",
+      "type": "mqtt.subscribe",
+      "connector": "broker",
+      "topic": "robot/goal",
+      "set": { "goal": "payload" },
+      "policy": "preempt_latest",
+      "priority": 50
+    }
+  ],
+  "flow": [
+    { "id": "busy", "type": "mqtt.publish", "connector": "broker", "topic": "robot/state", "payload": "NAVIGATING", "qos": 1 },
+    {
+      "id": "go",
+      "type": "nav.go_to_pose",
+      "pose": { "x": "$goal.x", "y": "$goal.y", "yaw_deg": "$goal.yaw" },
+      "out": "go"
+    },
+    {
+      "id": "report",
+      "type": "mqtt.publish",
+      "connector": "broker",
+      "topic": "robot/state",
+      "payload": "${'SUCCEEDED' if go.ok else 'FAILED'}",
+      "qos": 1,
+      "retain": true
+    }
+  ],
+  "on_abort": [
+    { "type": "mqtt.publish", "connector": "broker", "topic": "robot/state", "payload": "FAILED", "qos": 1, "retain": true }
+  ]
+}

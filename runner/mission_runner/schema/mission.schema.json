@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waspindustry.dev/schemas/mission/1/mission.schema.json",
+  "title": "Mission",
+  "description": "A declarative robot mission: triggers that start it, interrupts that can suspend it, and a flow of steps executed by mission_runner against Nav2.",
+  "type": "object",
+  "required": ["schema", "name", "flow"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "mission/1" },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+      "description": "Unique identifier. Used in file names, service names (/missions/<name>/run) and HTTP paths."
+    },
+    "title": { "type": "string", "maxLength": 120 },
+    "description": { "type": "string" },
+    "version": { "type": "integer", "minimum": 1, "default": 1 },
+    "policy": { "$ref": "#/$defs/policy", "description": "Policy used when the mission is started manually (service, action, HTTP, editor)." },
+    "priority": { "$ref": "#/$defs/priority" },
+    "inputs": {
+      "type": "object",
+      "description": "Declared parameters. Triggers and callers fill them; steps read them as variables.",
+      "additionalProperties": { "$ref": "#/$defs/inputDef" },
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+    },
+    "vars": {
+      "type": "object",
+      "description": "Initial values of mission variables.",
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+    },
+    "triggers": {
+      "type": "array",
+      "description": "External events that start this mission. Manual starts (service, action, HTTP, editor) are always available and need no trigger.",
+      "items": { "$ref": "#/$defs/trigger" }
+    },
+    "interrupts": {
+      "type": "array",
+      "description": "Triggers armed only while this mission is running. Each one starts another mission (`run`) with an interrupt policy.",
+      "items": { "$ref": "#/$defs/interrupt" }
+    },
+    "flow": { "$ref": "#/$defs/steps" },
+    "on_abort": {
+      "$ref": "#/$defs/steps",
+      "description": "Steps executed when the run is aborted, fails or is canceled. Navigation is already canceled when these run."
+    }
+  },
+
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+    "priority": { "type": "integer", "minimum": 0, "maximum": 100, "default": 50 },
+    "policy": {
+      "type": "string",
+      "enum": ["queue", "preempt", "preempt_latest", "reject_if_busy", "interrupt_and_resume"],
+      "default": "queue",
+      "description": "queue: run after the current run. preempt: cancel the current run if our priority is >= its priority. preempt_latest: like preempt and also drop queued runs of the same mission (latest goal wins). reject_if_busy: ignore when anything is running or queued. interrupt_and_resume: suspend the current run, run this, then resume the suspended run from the interrupted step."
+    },
+    "expression": {
+      "type": "string",
+      "description": "Expression over mission variables, inputs, `payload` (trigger payload), `robot` (pose) and `last` (previous step result). Python-like syntax: `battery < 0.2 and not charging`. `$name` and `$.field` are accepted as aliases for `name` and `payload.field`."
+    },
+    "valueOrExpression": {
+      "description": "A literal value, or a string of the form `$name.path` / `${expression}` which is evaluated at run time. `${...}` inside a longer string is interpolated as text."
+    },
+    "numberOrExpr": {
+      "oneOf": [{ "type": "number" }, { "type": "string", "pattern": "^\\$" }],
+      "description": "A number, or `$name.path` / `${expression}` evaluated at run time."
+    },
+    "inputDef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "enum": ["site", "pose", "number", "string", "boolean", "json"] },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "default": {},
+        "required": { "type": "boolean", "default": false }
+      }
+    },
+    "pose": {
+      "description": "A pose in the map. Either explicit coordinates, a site reference, or an expression.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y"],
+          "properties": {
+            "x": { "$ref": "#/$defs/numberOrExpr" },
+            "y": { "$ref": "#/$defs/numberOrExpr" },
+            "yaw_deg": { "$ref": "#/$defs/numberOrExpr", "default": 0 },
+            "frame": { "type": "string", "default": "map" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["site"],
+          "properties": {
+            "site": { "type": "string", "description": "Site name in the current map, or an expression." },
+            "yaw_deg": { "$ref": "#/$defs/numberOrExpr", "description": "Override the site's heading." }
+          }
+        },
+        {
+          "type": "string",
+          "description": "A site name, or `$var` / `${expr}` evaluating to a pose or site name."
+        }
+      ]
+    },
+    "point": {
+      "oneOf": [
+        { "$ref": "#/$defs/pose" },
+        {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 3,
+          "description": "[x, y] or [x, y, yaw_deg]"
+        }
+      ]
+    },
+    "behaviorTree": {
+      "description": "Behavior tree for this navigation goal: a path to an XML file on the robot, or a template that mission_runner expands to XML at deploy time.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["template"],
+          "properties": {
+            "template": { "type": "string", "enum": ["navigate_with_recovery", "navigate_through_poses_with_recovery"] },
+            "retries": { "type": "integer", "minimum": 0, "maximum": 20, "default": 6 },
+            "recoveries": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["clear_costmap", "spin", "wait", "backup"] },
+              "default": ["clear_costmap", "spin", "wait", "backup"]
+            },
+            "replan_rate_hz": { "type": "number", "minimum": 0.1, "maximum": 20, "default": 1 },
+            "spin_deg": { "type": "number", "default": 90 },
+            "backup_m": { "type": "number", "default": 0.3 },
+            "wait_s": { "type": "number", "default": 5 },
+            "planner_id": { "type": "string", "default": "GridBased" },
+            "controller_id": { "type": "string", "default": "FollowPath" }
+          }
+        }
+      ]
+    },
+
+    "onFail": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "retry": { "type": "integer", "minimum": 0, "maximum": 100, "default": 0 },
+        "retry_delay_s": { "type": "number", "minimum": 0, "default": 0 },
+        "before_retry": { "$ref": "#/$defs/steps" },
+        "then": { "type": "string", "enum": ["abort", "continue"], "default": "abort" }
+      }
+    },
+
+    "stepBase": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,40}$", "description": "Unique within the mission. Generated by the editor when missing." },
+        "type": { "type": "string" },
+        "name": { "type": "string", "maxLength": 120 },
+        "enabled": { "type": "boolean", "default": true },
+        "out": { "$ref": "#/$defs/identifier", "description": "Store the step result as this variable ({ok, status, value, error, duration_s}). The result is always also available as `last`." },
+        "timeout_s": { "type": "number", "exclusiveMinimum": 0 },
+        "on_fail": { "$ref": "#/$defs/onFail" }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/step" }
+    },
+    "step": {
+      "allOf": [
+        { "$ref": "#/$defs/stepBase" },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "nav.wait_active", "nav.set_initial_pose", "nav.go_to_pose", "nav.go_through_poses",
+                "nav.follow_route",
+                "nav.follow_waypoints", "nav.follow_path", "nav.compute_path", "nav.compute_path_through_poses",
+                "nav.smooth_path", "nav.spin", "nav.backup", "nav.drive_on_heading", "nav.change_map",
+                "nav.clear_costmap", "nav.dock", "nav.undock", "nav.lifecycle", "nav.cancel",
+                "ros.publish", "ros.call_service", "ros.call_action", "ros.set_param",
+                "mqtt.publish", "http.request", "modbus.write", "gpio.write",
+                "set", "if", "loop", "break", "wait", "wait_event", "ask_user", "log", "run_mission", "end"
+              ]
+            }
+          }
+        },
+        { "if": { "properties": { "type": { "const": "nav.wait_active" } } }, "then": { "properties": { "timeout_s": { "type": "number" } } } },
+        { "if": { "properties": { "type": { "const": "nav.set_initial_pose" } } }, "then": { "required": ["pose"], "properties": { "pose": { "$ref": "#/$defs/pose" } } } },
+        { "if": { "properties": { "type": { "const": "nav.go_to_pose" } } }, "then": { "required": ["pose"], "properties": { "pose": { "$ref": "#/$defs/pose" }, "behavior_tree": { "$ref": "#/$defs/behaviorTree" } } } },
+        { "if": { "properties": { "type": { "const": "nav.go_through_poses" } } }, "then": { "required": ["poses"], "properties": { "poses": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/pose" } }, "behavior_tree": { "$ref": "#/$defs/behaviorTree" } } } },
+        { "if": { "properties": { "type": { "const": "nav.follow_route" } } }, "then": {
+            "required": ["to"],
+            "properties": {
+              "to": { "type": "string", "description": "Destination site, or an expression that resolves to one." },
+              "from": { "type": "string", "description": "Start site. Defaults to the graph node nearest the robot." },
+              "on_no_route": { "type": "string", "enum": ["fail", "direct"], "default": "fail", "description": "fail: stop when the graph has no path. direct: drive straight there instead." },
+              "apply_speed_limits": { "type": "boolean", "default": false, "description": "Drive lane by lane, setting the controller's speed parameter for lanes that cap it." },
+              "behavior_tree": { "$ref": "#/$defs/behaviorTree" }
+            }
+          } },
+        { "if": { "properties": { "type": { "const": "nav.follow_waypoints" } } }, "then": { "required": ["poses"], "properties": { "poses": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/pose" } } } } },
+        { "if": { "properties": { "type": { "const": "nav.follow_path" } } }, "then": {
+            "properties": {
+              "points": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/point" }, "description": "Polyline the robot follows. Ignored when `path` is set." },
+              "path": { "description": "A path value from nav.compute_path / nav.smooth_path, e.g. \"$plan.value\"." },
+              "from_robot": { "type": "boolean", "default": true, "description": "Prepend the robot's current position to `points`." },
+              "spacing_m": { "type": "number", "exclusiveMinimum": 0, "default": 0.05 },
+              "controller_id": { "type": "string", "default": "" },
+              "goal_checker_id": { "type": "string", "default": "" }
+            },
+            "anyOf": [{ "required": ["points"] }, { "required": ["path"] }]
+          } },
+        { "if": { "properties": { "type": { "const": "nav.compute_path" } } }, "then": { "required": ["goal"], "properties": { "goal": { "$ref": "#/$defs/pose" }, "start": { "$ref": "#/$defs/pose" }, "planner_id": { "type": "string", "default": "" }, "use_start": { "type": "boolean", "default": false } } } },
+        { "if": { "properties": { "type": { "const": "nav.compute_path_through_poses" } } }, "then": { "required": ["goals"], "properties": { "goals": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/pose" } }, "start": { "$ref": "#/$defs/pose" }, "planner_id": { "type": "string", "default": "" }, "use_start": { "type": "boolean", "default": false } } } },
+        { "if": { "properties": { "type": { "const": "nav.smooth_path" } } }, "then": { "required": ["path"], "properties": { "path": {}, "smoother_id": { "type": "string", "default": "" }, "max_duration_s": { "type": "number", "default": 2 }, "check_collision": { "type": "boolean", "default": false } } } },
+        { "if": { "properties": { "type": { "const": "nav.spin" } } }, "then": { "required": ["angle_deg"], "properties": { "angle_deg": { "$ref": "#/$defs/numberOrExpr" }, "time_allowance_s": { "type": "number", "default": 10 } } } },
+        { "if": { "properties": { "type": { "const": "nav.backup" } } }, "then": { "required": ["distance_m"], "properties": { "distance_m": { "$ref": "#/$defs/numberOrExpr" }, "speed_mps": { "$ref": "#/$defs/numberOrExpr", "default": 0.15 }, "time_allowance_s": { "type": "number", "default": 10 } } } },
+        { "if": { "properties": { "type": { "const": "nav.drive_on_heading" } } }, "then": { "required": ["distance_m"], "properties": { "distance_m": { "$ref": "#/$defs/numberOrExpr" }, "speed_mps": { "$ref": "#/$defs/numberOrExpr", "default": 0.15 }, "time_allowance_s": { "type": "number", "default": 10 } } } },
+        { "if": { "properties": { "type": { "const": "nav.change_map" } } }, "then": { "required": ["map"], "properties": { "map": { "type": "string", "description": "Map name from sites.json, or an absolute .yaml path." } } } },
+        { "if": { "properties": { "type": { "const": "nav.clear_costmap" } } }, "then": { "properties": { "which": { "type": "string", "enum": ["all", "local", "global"], "default": "all" } } } },
+        { "if": { "properties": { "type": { "const": "nav.dock" } } }, "then": { "properties": { "dock_id": { "type": "string" }, "dock_pose": { "$ref": "#/$defs/pose" }, "dock_type": { "type": "string", "default": "" }, "navigate_to_staging": { "type": "boolean", "default": true } } } },
+        { "if": { "properties": { "type": { "const": "nav.undock" } } }, "then": { "properties": { "dock_type": { "type": "string", "default": "" } } } },
+        { "if": { "properties": { "type": { "const": "nav.lifecycle" } } }, "then": { "required": ["action"], "properties": { "action": { "type": "string", "enum": ["startup", "shutdown"] } } } },
+        { "if": { "properties": { "type": { "const": "ros.publish" } } }, "then": { "required": ["topic", "msg_type"], "properties": { "topic": { "type": "string" }, "msg_type": { "type": "string", "description": "e.g. std_msgs/msg/String" }, "message": { "type": "object" } } } },
+        { "if": { "properties": { "type": { "const": "ros.call_service" } } }, "then": { "required": ["service", "srv_type"], "properties": { "service": { "type": "string" }, "srv_type": { "type": "string" }, "request": { "type": "object" } } } },
+        { "if": { "properties": { "type": { "const": "ros.call_action" } } }, "then": { "required": ["action", "action_type"], "properties": { "action": { "type": "string" }, "action_type": { "type": "string" }, "goal": { "type": "object" } } } },
+        { "if": { "properties": { "type": { "const": "ros.set_param" } } }, "then": { "required": ["node", "params"], "properties": { "node": { "type": "string" }, "params": { "type": "object" } } } },
+        { "if": { "properties": { "type": { "const": "mqtt.publish" } } }, "then": { "required": ["connector", "topic"], "properties": { "connector": { "type": "string" }, "topic": { "type": "string" }, "payload": {}, "qos": { "type": "integer", "enum": [0, 1, 2], "default": 1 }, "retain": { "type": "boolean", "default": false } } } },
+        { "if": { "properties": { "type": { "const": "http.request" } } }, "then": { "required": ["url"], "properties": { "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"], "default": "POST" }, "url": { "type": "string" }, "headers": { "type": "object" }, "body": {} } } },
+        { "if": { "properties": { "type": { "const": "modbus.write" } } }, "then": { "required": ["connector", "address", "value"], "properties": { "connector": { "type": "string" }, "kind": { "type": "string", "enum": ["coil", "register"], "default": "coil" }, "address": { "type": "integer", "minimum": 0 }, "value": {} } } },
+        { "if": { "properties": { "type": { "const": "gpio.write" } } }, "then": { "required": ["pin", "value"], "properties": { "pin": { "type": "integer", "minimum": 0 }, "value": {} } } },
+        { "if": { "properties": { "type": { "const": "set" } } }, "then": { "required": ["var", "value"], "properties": { "var": { "$ref": "#/$defs/identifier" }, "value": {} } } },
+        { "if": { "properties": { "type": { "const": "if" } } }, "then": { "required": ["condition", "then"], "properties": { "condition": { "$ref": "#/$defs/expression" }, "then": { "$ref": "#/$defs/steps" }, "else": { "$ref": "#/$defs/steps" } } } },
+        { "if": { "properties": { "type": { "const": "loop" } } }, "then": { "required": ["body"], "properties": { "count": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "description": "Expression, e.g. \"$rounds\"" }] }, "while": { "$ref": "#/$defs/expression" }, "body": { "$ref": "#/$defs/steps" } } } },
+        { "if": { "properties": { "type": { "const": "wait" } } }, "then": { "required": ["seconds"], "properties": { "seconds": { "oneOf": [{ "type": "number", "minimum": 0 }, { "type": "string" }] } } } },
+        { "if": { "properties": { "type": { "const": "wait_event" } } }, "then": { "required": ["source"], "properties": { "source": { "$ref": "#/$defs/eventSource" }, "on_timeout": { "type": "string", "enum": ["abort", "continue"], "default": "abort" } } } },
+        { "if": { "properties": { "type": { "const": "ask_user" } } }, "then": { "required": ["text"], "properties": { "text": { "type": "string" }, "options": { "type": "array", "minItems": 1, "items": { "type": "string" }, "default": ["Continue", "Stop"] }, "default": { "type": "string", "description": "Chosen automatically when nobody answers before timeout_s." } } } },
+        { "if": { "properties": { "type": { "const": "log" } } }, "then": { "required": ["text"], "properties": { "text": { "type": "string" }, "level": { "type": "string", "enum": ["debug", "info", "warn", "error"], "default": "info" } } } },
+        { "if": { "properties": { "type": { "const": "run_mission" } } }, "then": { "required": ["mission"], "properties": { "mission": { "type": "string" }, "inputs": { "type": "object" } } } },
+        { "if": { "properties": { "type": { "const": "end" } } }, "then": { "properties": { "result": { "type": "string", "enum": ["success", "failed"], "default": "success" }, "message": { "type": "string" } } } }
+      ]
+    },
+
+    "eventSource": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["ros.topic", "mqtt.subscribe", "http.webhook", "timer.cron", "timer.interval", "timer.boot", "gpio.input", "modbus.poll", "mission.done"]
+        },
+        "when": { "$ref": "#/$defs/expression", "description": "Only fire when this is true for the payload." },
+        "edge": { "type": "string", "enum": ["any", "rising"], "default": "any", "description": "rising: fire only when `when` changes from false to true." },
+        "debounce_s": { "type": "number", "minimum": 0, "default": 0 },
+        "topic": { "type": "string" },
+        "msg_type": { "type": "string", "description": "ros.topic: message type; auto-detected when omitted." },
+        "connector": { "type": "string" },
+        "path": { "type": "string", "description": "http.webhook: URL path under /hooks/, e.g. \"start_patrol\" -> POST /hooks/start_patrol" },
+        "cron": { "type": "string", "description": "timer.cron: 5-field crontab expression in local time." },
+        "seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "delay_s": { "type": "number", "minimum": 0, "default": 0 },
+        "pin": { "type": "integer", "minimum": 0 },
+        "gpio_edge": { "type": "string", "enum": ["rising", "falling", "both"], "default": "falling" },
+        "pull": { "type": "string", "enum": ["up", "down", "none"], "default": "up" },
+        "bounce_s": { "type": "number", "minimum": 0, "default": 0.05 },
+        "kind": { "type": "string", "enum": ["coil", "discrete", "register"], "default": "coil" },
+        "address": { "type": "integer", "minimum": 0 },
+        "poll_s": { "type": "number", "exclusiveMinimum": 0, "default": 0.5 },
+        "mission": { "type": "string" },
+        "result": { "type": "string", "enum": ["success", "failed", "any"], "default": "any" }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "ros.topic" } } }, "then": { "required": ["topic"] } },
+        { "if": { "properties": { "type": { "const": "mqtt.subscribe" } } }, "then": { "required": ["connector", "topic"] } },
+        { "if": { "properties": { "type": { "const": "http.webhook" } } }, "then": { "required": ["path"] } },
+        { "if": { "properties": { "type": { "const": "timer.cron" } } }, "then": { "required": ["cron"] } },
+        { "if": { "properties": { "type": { "const": "timer.interval" } } }, "then": { "required": ["seconds"] } },
+        { "if": { "properties": { "type": { "const": "gpio.input" } } }, "then": { "required": ["pin"] } },
+        { "if": { "properties": { "type": { "const": "modbus.poll" } } }, "then": { "required": ["connector", "address"] } },
+        { "if": { "properties": { "type": { "const": "mission.done" } } }, "then": { "required": ["mission"] } }
+      ]
+    },
+
+    "trigger": {
+      "allOf": [
+        { "$ref": "#/$defs/eventSource" },
+        {
+          "properties": {
+            "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,40}$" },
+            "name": { "type": "string" },
+            "enabled": { "type": "boolean", "default": true },
+            "policy": { "$ref": "#/$defs/policy" },
+            "priority": { "$ref": "#/$defs/priority" },
+            "set": {
+              "type": "object",
+              "description": "Mission inputs computed from the payload, e.g. {\"goal\": \"payload\", \"x\": \"payload.x\"}.",
+              "additionalProperties": { "$ref": "#/$defs/expression" }
+            }
+          }
+        }
+      ]
+    },
+
+    "interrupt": {
+      "allOf": [
+        { "$ref": "#/$defs/trigger" },
+        {
+          "required": ["run"],
+          "properties": {
+            "run": { "type": "string", "description": "Mission to start when this fires." },
+            "policy": { "type": "string", "enum": ["interrupt_and_resume", "preempt"], "default": "interrupt_and_resume" }
+          }
+        }
+      ]
+    }
+  }
+}

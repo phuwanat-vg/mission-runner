@@ -1,0 +1,13 @@
+{
+  "schema": "mission/1",
+  "name": "emergency_stop",
+  "title": "Emergency stop",
+  "description": "Cancels navigation and waits for an operator. Highest priority; also bound to the global e-stop input.",
+  "policy": "preempt",
+  "priority": 100,
+  "flow": [
+    { "id": "cancel", "type": "nav.cancel" },
+    { "id": "log", "type": "log", "level": "error", "text": "Emergency stop pressed" },
+    { "id": "ack", "type": "ask_user", "text": "Emergency stop. Clear the area, then press Resume.", "options": ["Resume"], "out": "ack" }
+  ]
+}

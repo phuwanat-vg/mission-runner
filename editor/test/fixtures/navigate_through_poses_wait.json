@@ -1,0 +1,10 @@
+{
+  "template": "navigate_through_poses_with_recovery",
+  "retries": 2,
+  "recoveries": [
+    "wait",
+    "clear_costmap"
+  ],
+  "wait_s": 2.5,
+  "replan_rate_hz": 0.5
+}

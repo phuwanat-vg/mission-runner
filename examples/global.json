@@ -1,0 +1,11 @@
+{
+  "schema": "mission/1",
+  "name": "global",
+  "title": "Global interrupts",
+  "description": "Interrupts armed at all times, regardless of which mission is running. The flow is intentionally empty.",
+  "interrupts": [
+    { "id": "estop_button", "type": "gpio.input", "pin": 17, "gpio_edge": "falling", "run": "emergency_stop", "policy": "preempt", "priority": 100 },
+    { "id": "estop_topic", "type": "ros.topic", "topic": "/estop", "when": "payload.data", "edge": "rising", "run": "emergency_stop", "policy": "preempt", "priority": 100 }
+  ],
+  "flow": []
+}

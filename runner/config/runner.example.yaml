@@ -1,0 +1,26 @@
+# Copy to <home>/runner.yaml (default home: ~/.mission). Every key is optional.
+
+backend: nav2            # nav2 | sim
+http_host: 0.0.0.0
+http_port: 8080
+log_level: INFO
+keep_runs: 2000          # run-log history length
+install_examples: true   # copy the example missions into an empty home on first start
+
+# ROS
+ros_namespace: ""
+ros_node_name: mission_runner
+battery_topic: /battery_state
+robot_frame: base_link
+
+nav2:
+  wait_nodes: [bt_navigator]   # nodes that must be ACTIVE for nav.wait_active
+  localizer: amcl              # "" when you localize with FAST-LIO2 / other (no lifecycle node to wait for)
+
+# Simulated robot (backend: sim or --sim)
+sim:
+  speed_mps: 0.6
+  turn_rate_dps: 90
+  time_scale: 1.0
+  start: { x: 0.0, y: 0.0, yaw_deg: 0.0 }
+  battery: 0.85

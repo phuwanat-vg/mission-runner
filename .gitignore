@@ -1,0 +1,14 @@
+.venv/
+.dev-home/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+editor/dist/
+runner/mission_runner/webui/
+runner/build/
+runner/install/
+runner/log/
+*.log
+.DS_Store
+editor/screenshots/

@@ -1,0 +1,11 @@
+# Generic bridge so a GUI can reach the whole runner API over one ROS service
+# (foxglove_bridge exposes services, so a desktop app needs no HTTP connection).
+# The path and body are the same as the HTTP API in docs/runner-api.md.
+string method      # GET, POST, PUT, DELETE
+string path        # e.g. /api/missions, /api/missions/patrol, /api/preview/route
+string body_json   # request body, "" for none
+---
+bool ok
+int32 status
+string body_json   # response body; binary replies come back as {"content_type":..,"base64":..}
+string message

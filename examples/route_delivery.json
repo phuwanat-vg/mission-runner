@@ -1,0 +1,31 @@
+{
+  "schema": "mission/1",
+  "name": "route_delivery",
+  "title": "Delivery along the route",
+  "description": "Drives only on the lanes drawn in the route graph. At each stop it does the work for that stop: tell the PLC it arrived, wait for the load, report on MQTT.",
+  "policy": "queue",
+  "priority": 50,
+  "inputs": {
+    "pickup": { "type": "site", "default": "Conveyor1", "label": "Pick up at" },
+    "drop": { "type": "site", "default": "Rack3", "label": "Drop at" }
+  },
+  "flow": [
+    { "id": "ready", "type": "nav.wait_active" },
+
+    { "id": "to_pickup", "type": "nav.follow_route", "name": "Drive to the pick-up", "to": "$pickup" },
+    { "id": "announce_pickup", "type": "mqtt.publish", "connector": "broker", "topic": "robot/state", "payload": "AT_PICKUP", "qos": 1, "retain": true },
+    { "id": "call_plc", "type": "modbus.write", "connector": "plc1", "kind": "coil", "address": 100, "value": true },
+    { "id": "wait_load", "type": "wait_event", "name": "Wait for the load", "source": { "type": "modbus.poll", "connector": "plc1", "kind": "coil", "address": 101, "when": "payload.value", "edge": "rising" }, "timeout_s": 180, "on_timeout": "abort" },
+
+    { "id": "to_drop", "type": "nav.follow_route", "name": "Drive to the drop", "to": "$drop", "on_fail": { "retry": 1, "before_retry": [{ "type": "nav.clear_costmap" }] } },
+    { "id": "announce_drop", "type": "mqtt.publish", "connector": "broker", "topic": "robot/state", "payload": "AT_DROP", "qos": 1, "retain": true },
+    { "id": "release", "type": "modbus.write", "connector": "plc1", "kind": "coil", "address": 102, "value": true },
+    { "id": "confirm", "type": "ask_user", "name": "Confirm the drop", "text": "Unloaded at ${drop}?", "options": ["Yes", "Hold"], "timeout_s": 60, "default": "Yes", "out": "confirmed" },
+
+    { "id": "go_home", "type": "nav.follow_route", "name": "Back home", "to": "Home" },
+    { "id": "idle", "type": "mqtt.publish", "connector": "broker", "topic": "robot/state", "payload": "IDLE", "qos": 1, "retain": true }
+  ],
+  "on_abort": [
+    { "type": "mqtt.publish", "connector": "broker", "topic": "robot/state", "payload": "ABORTED", "qos": 1, "retain": true }
+  ]
+}

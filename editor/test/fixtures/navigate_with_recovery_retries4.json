@@ -1,0 +1,14 @@
+{
+  "template": "navigate_with_recovery",
+  "retries": 4,
+  "recoveries": [
+    "clear_costmap",
+    "spin",
+    "backup"
+  ],
+  "spin_deg": 180,
+  "backup_m": 0.5,
+  "replan_rate_hz": 2,
+  "planner_id": "SmacPlanner",
+  "controller_id": "MPPI"
+}

@@ -1,0 +1,23 @@
+# systemd unit: sudo cp mission_runner.service /etc/systemd/system/ && sudo systemctl enable --now mission_runner
+# Adjust User=, the workspace path and ROS distro. Secrets for connectors go in /etc/mission_runner.env
+# (e.g. MQTT_USER=..., MQTT_PASS=...), readable by the service user only.
+
+[Unit]
+Description=mission_runner - declarative Nav2 missions
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Environment=ROS_DISTRO=jazzy
+Environment=MISSION_HOME=/home/pi/.mission
+EnvironmentFile=-/etc/mission_runner.env
+ExecStart=/bin/bash -lc 'source /opt/ros/$ROS_DISTRO/setup.bash && source /home/pi/ros2_ws/install/setup.bash && exec ros2 run mission_runner mission_runner run'
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

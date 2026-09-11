@@ -1,0 +1,17 @@
+{
+  "schema": "mission/1",
+  "name": "go_to_point",
+  "title": "Go to a point",
+  "description": "Equivalent of p2p.py: wait for Nav2, drive to one pose, report the result.",
+  "flow": [
+    { "id": "wait", "type": "nav.wait_active", "timeout_s": 60 },
+    {
+      "id": "go",
+      "type": "nav.go_to_pose",
+      "name": "Drive to (1.0, 0.5)",
+      "pose": { "x": 1.0, "y": 0.5, "yaw_deg": -90 },
+      "on_fail": { "retry": 1, "before_retry": [{ "type": "nav.clear_costmap", "which": "all" }], "then": "abort" }
+    },
+    { "id": "done", "type": "log", "text": "Goal reached in ${round(last.duration_s, 1)} s" }
+  ]
+}

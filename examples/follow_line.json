@@ -1,0 +1,19 @@
+{
+  "schema": "mission/1",
+  "name": "follow_line",
+  "title": "Follow a polyline",
+  "description": "Equivalent of follow_path.py: build a straight-segment path from the robot through several points and hand it to the controller.",
+  "flow": [
+    { "id": "wait", "type": "nav.wait_active" },
+    {
+      "id": "line",
+      "type": "nav.follow_path",
+      "from_robot": true,
+      "spacing_m": 0.05,
+      "points": [[0.0, 0.0], [3.0, 0.3], [3.0, -3.0], [0.0, -3.0]]
+    },
+    { "id": "plan", "type": "nav.compute_path", "goal": "Home", "out": "plan" },
+    { "id": "smooth", "type": "nav.smooth_path", "path": "$plan.value", "out": "smoothed" },
+    { "id": "back", "type": "nav.follow_path", "path": "$smoothed.value" }
+  ]
+}

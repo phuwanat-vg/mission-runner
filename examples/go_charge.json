@@ -1,0 +1,17 @@
+{
+  "schema": "mission/1",
+  "name": "go_charge",
+  "title": "Go charge",
+  "description": "Drive to the charger and dock. Started by low-battery interrupts, on boot, or by hand.",
+  "policy": "preempt",
+  "priority": 90,
+  "triggers": [
+    { "id": "on_boot", "type": "timer.boot", "delay_s": 20, "policy": "queue", "priority": 10 }
+  ],
+  "flow": [
+    { "id": "wait", "type": "nav.wait_active" },
+    { "id": "to_charger", "type": "nav.go_to_pose", "pose": "Charger", "on_fail": { "retry": 3, "retry_delay_s": 5, "before_retry": [{ "type": "nav.clear_costmap" }] } },
+    { "id": "dock", "type": "nav.dock", "dock_id": "home_dock", "on_fail": { "then": "continue" } },
+    { "id": "report", "type": "ros.publish", "topic": "/mission/notice", "msg_type": "std_msgs/msg/String", "message": { "data": "docked" } }
+  ]
+}
