@@ -16,6 +16,10 @@
   (`replace=true` also removes missions not in the project). Offline, with no
   network or GUI: `mission_runner project import|export <file>`
 - Example `inspect_route`: a round on the lanes with a request at each stop
+- Fix: `nav.follow_route` without `from` starts at the site nearest the robot
+  even when no lane leads away from it. It used to skip such a site (e.g. the
+  end of a one-way lane) and start at a farther one, sending the robot across
+  the floor off the lanes; now there is no route and the step fails
 - **Route graph**: sites can be connected by `edges` (one-way, speed cap, blocked,
   cost). New `nav.follow_route` step plans over the graph and drives only the
   lanes that were drawn, with `on_no_route` and optional per-lane speed limits.

@@ -202,7 +202,7 @@
             "required": ["to"],
             "properties": {
               "to": { "type": "string", "description": "Destination site, or an expression that resolves to one." },
-              "from": { "type": "string", "description": "Start site. Defaults to the graph node nearest the robot." },
+              "from": { "type": "string", "description": "Start site. Defaults to the site nearest the robot, even one with no lane leading away (then there is no route)." },
               "through": { "type": "array", "items": { "type": "string" }, "description": "Sites to pass in order before 'to'; every leg is planned on the route graph." },
               "on_no_route": { "type": "string", "enum": ["fail", "direct"], "default": "fail", "description": "fail: stop when the graph has no path. direct: drive straight there instead." },
               "apply_speed_limits": { "type": "boolean", "default": false, "description": "Drive lane by lane, setting the controller's speed parameter for lanes that cap it." },

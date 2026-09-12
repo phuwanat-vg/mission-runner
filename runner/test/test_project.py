@@ -88,6 +88,24 @@ async def test_follow_route_through(harness):
     assert value["route"] == ["Home", "D", "C", "B", "Conveyor1", "Rack3"]
 
 
+async def test_follow_route_from_one_way_dead_end_does_not_leave_the_lanes(harness):
+    # Robot parked at Charger, reachable only by a one-way lane Home -> Charger:
+    # the route must start at Charger and fail, not start at Home and cut across.
+    m = harness.r.store.sites.map("demo_room")
+    for e in m.edges:
+        if {e.frm, e.to} == {"Home", "Charger"}:
+            e.frm, e.to, e.bidirectional = "Home", "Charger", False
+    c = m.sites["Charger"]
+    state = harness.r.backend._state
+    state.x, state.y = c.x, c.y
+    doc = mission("deadend", [{"id": "go", "type": "nav.follow_route", "to": "A"}])
+    await harness.r.deploy_mission(doc)
+    run = await harness.run("deadend")
+    assert await harness.wait_idle(30)
+    assert run.status == RunStatus.FAILED
+    assert "no route from 'Charger' to 'A'" in str(run.error)
+
+
 async def test_project_export_and_import(harness):
     status, proj = await harness.r.call_api("GET", "/api/project?name=demo")
     assert status == 200 and proj["schema"] == "project/1" and proj["name"] == "demo"

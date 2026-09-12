@@ -655,7 +655,9 @@ class Interpreter:
             rs = s.backend.robot_state()
             if rs.x is None or rs.y is None:
                 raise StepFailed("robot pose unknown; cannot find the nearest route node")
-            near = mapdef.nearest_site(rs.x, rs.y, only_on_graph=True) or mapdef.nearest_site(rs.x, rs.y)
+            # Nearest site of any kind: skipping a dead end (e.g. the robot parked
+            # at the end of a one-way lane) would send it across the floor off the lanes.
+            near = mapdef.nearest_site(rs.x, rs.y)
             if near is None:
                 raise StepFailed(f"map '{mapdef.name}' has no sites to start from")
             start_name = near.name

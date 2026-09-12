@@ -70,7 +70,7 @@ Schema (`mission.schema.json`):
 { "type": "nav.follow_route",
   "to": "Rack3",                      // site, or expression
   "through": ["B", "Conveyor1"],      // optional, visited in order first
-  "from": "Home",                     // optional; default: nearest graph node to the robot
+  "from": "Home",                     // optional; default: the point nearest the robot
   "on_no_route": "fail",              // or "direct"
   "apply_speed_limits": false }
 ```
