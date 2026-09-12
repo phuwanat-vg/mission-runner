@@ -96,7 +96,7 @@ the web page is bundled; without it the robot serves a minimal status page
 ## Development
 
 ```bash
-cd runner && python -m pytest          # 65 tests, sim backend, ~1 min
+cd runner && python -m pytest          # 71 tests, sim backend, ~1.5 min
 cd editor && npm test && npm run build
 ```
 
