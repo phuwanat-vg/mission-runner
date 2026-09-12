@@ -107,6 +107,23 @@ If it cannot load missions, its message says whether the bridge has no
 
 ---
 
+## 3b. Putting a project on the robot without a network
+
+A project saved by Mission Builder (`.mproj`) can be copied to the robot on a
+USB stick or with `scp`, then imported with no GUI and no bridge:
+
+```bash
+mission_runner project import ~/line3.mproj           # add or update
+mission_runner project import ~/line3.mproj --replace # also remove missions not in the project
+sudo systemctl restart mission_runner
+```
+
+Everything is validated first; if any mission is invalid nothing is written
+and the errors are printed. `mission_runner project export robot.mproj` goes
+the other way.
+
+---
+
 ## 4. Tell the system about your map
 
 Mission Builder draws points on the map the robot is using. Register it once in

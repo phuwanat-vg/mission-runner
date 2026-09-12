@@ -13,6 +13,10 @@ ros_node_name: mission_runner
 battery_topic: /battery_state
 robot_frame: base_link
 
+# ros.request: JSON request/answer over std_msgs/String (iViz's Dashboard answers these)
+request_topic: /iviz/request
+answer_topic: /iviz/answer
+
 nav2:
   wait_nodes: [bt_navigator]   # nodes that must be ACTIVE for nav.wait_active
   localizer: amcl              # "" when you localize with FAST-LIO2 / other (no lifecycle node to wait for)

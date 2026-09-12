@@ -26,6 +26,10 @@ class RunnerConfig:
     ros_node_name: str = "mission_runner"
     battery_topic: str = "/battery_state"
     robot_frame: str = "base_link"
+    # Default topics for the ros.request step: the JSON request/answer exchange
+    # iViz's Dashboard answers. A step can override either.
+    request_topic: str = "/iviz/request"
+    answer_topic: str = "/iviz/answer"
     nav2: dict[str, Any] = field(default_factory=lambda: {"wait_nodes": ["bt_navigator"], "localizer": "amcl", "speed_node": "/controller_server", "speed_param": "FollowPath.max_vel_x", "default_speed_mps": 0.5})
     live_topics: dict[str, Any] = field(default_factory=dict)
     sim: dict[str, Any] = field(default_factory=lambda: {"speed_mps": 0.6, "turn_rate_dps": 90.0, "time_scale": 1.0, "start": {"x": 0.0, "y": 0.0, "yaw_deg": 0.0}, "battery": 0.85})

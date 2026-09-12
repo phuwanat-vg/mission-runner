@@ -188,6 +188,7 @@
                 "nav.clear_costmap", "nav.dock", "nav.undock", "nav.lifecycle", "nav.cancel",
                 "ros.publish", "ros.call_service", "ros.call_action", "ros.set_param",
                 "mqtt.publish", "http.request", "modbus.write", "gpio.write",
+                "ros.request",
                 "set", "if", "loop", "break", "wait", "wait_event", "ask_user", "log", "run_mission", "end"
               ]
             }
@@ -202,6 +203,7 @@
             "properties": {
               "to": { "type": "string", "description": "Destination site, or an expression that resolves to one." },
               "from": { "type": "string", "description": "Start site. Defaults to the graph node nearest the robot." },
+              "through": { "type": "array", "items": { "type": "string" }, "description": "Sites to pass in order before 'to'; every leg is planned on the route graph." },
               "on_no_route": { "type": "string", "enum": ["fail", "direct"], "default": "fail", "description": "fail: stop when the graph has no path. direct: drive straight there instead." },
               "apply_speed_limits": { "type": "boolean", "default": false, "description": "Drive lane by lane, setting the controller's speed parameter for lanes that cap it." },
               "behavior_tree": { "$ref": "#/$defs/behaviorTree" }
@@ -243,6 +245,19 @@
         { "if": { "properties": { "type": { "const": "loop" } } }, "then": { "required": ["body"], "properties": { "count": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "description": "Expression, e.g. \"$rounds\"" }] }, "while": { "$ref": "#/$defs/expression" }, "body": { "$ref": "#/$defs/steps" } } } },
         { "if": { "properties": { "type": { "const": "wait" } } }, "then": { "required": ["seconds"], "properties": { "seconds": { "oneOf": [{ "type": "number", "minimum": 0 }, { "type": "string" }] } } } },
         { "if": { "properties": { "type": { "const": "wait_event" } } }, "then": { "required": ["source"], "properties": { "source": { "$ref": "#/$defs/eventSource" }, "on_timeout": { "type": "string", "enum": ["abort", "continue"], "default": "abort" } } } },
+        { "if": { "properties": { "type": { "const": "ros.request" } } }, "then": {
+            "required": ["text"],
+            "properties": {
+              "text": { "type": "string" },
+              "options": { "type": "array", "items": { "type": "string" }, "description": "Empty or absent: any answer is accepted." },
+              "default": { "type": "string", "description": "Answer used on timeout when on_timeout is 'default'." },
+              "on_timeout": { "type": "string", "enum": ["default", "fail"], "default": "default" },
+              "request_topic": { "type": "string", "pattern": "^[/$]", "description": "std_msgs/String topic the JSON request is published on. Runner default: /iviz/request." },
+              "answer_topic": { "type": "string", "pattern": "^[/$]", "description": "std_msgs/String topic answers arrive on. Runner default: /iviz/answer." },
+              "station": { "type": "string", "description": "Where the robot is. Defaults to the site of the last nav.follow_route." },
+              "data": { "type": "object", "description": "Extra JSON passed to the answering node; values may use expressions." }
+            }
+          } },
         { "if": { "properties": { "type": { "const": "ask_user" } } }, "then": { "required": ["text"], "properties": { "text": { "type": "string" }, "options": { "type": "array", "minItems": 1, "items": { "type": "string" }, "default": ["Continue", "Stop"] }, "default": { "type": "string", "description": "Chosen automatically when nobody answers before timeout_s." } } } },
         { "if": { "properties": { "type": { "const": "log" } } }, "then": { "required": ["text"], "properties": { "text": { "type": "string" }, "level": { "type": "string", "enum": ["debug", "info", "warn", "error"], "default": "info" } } } },
         { "if": { "properties": { "type": { "const": "run_mission" } } }, "then": { "required": ["mission"], "properties": { "mission": { "type": "string" }, "inputs": { "type": "object" } } } },

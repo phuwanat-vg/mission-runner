@@ -42,6 +42,13 @@ def build_parser() -> argparse.ArgumentParser:
     ex = sub.add_parser("examples", help="copy the example missions into the home directory")
     _add_common(ex)
 
+    proj = sub.add_parser("project", help="import or export a project file (.mproj); no network or GUI needed")
+    _add_common(proj)
+    proj.add_argument("action", choices=["import", "export"])
+    proj.add_argument("file")
+    proj.add_argument("--replace", action="store_true", help="import: also delete missions that are not in the project")
+    proj.add_argument("--name", default=None, help="export: project name (default: the home directory's name)")
+
     bt = sub.add_parser("bt", help="print the behavior tree XML for a template JSON object")
     bt.add_argument("template", help='e.g. \'{"template": "navigate_with_recovery", "retries": 4}\'')
     return parser
@@ -80,6 +87,9 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=getattr(logging, str(cfg.log_level).upper(), logging.INFO), format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("aiohttp").setLevel(logging.WARNING)
 
+    if args.cmd == "project":
+        return _project(args, cfg)
+
     from .runner import Runner
 
     if args.cmd == "examples":
@@ -112,6 +122,46 @@ async def _serve(cfg: object) -> int:
         await stop.wait()
     finally:
         await runner.stop()
+    return 0
+
+
+def _project(args: argparse.Namespace, cfg: object) -> int:
+    from .project import check_project, export_project, write_project
+    from .store import MissionStore
+
+    home = cfg.home  # type: ignore[attr-defined]
+    store = MissionStore(home)
+    store.load_all()
+    store.load_sites()
+    path = Path(args.file)
+
+    if args.action == "export":
+        doc = export_project(
+            store,
+            args.name or home.name,
+            {"request_topic": cfg.request_topic, "answer_topic": cfg.answer_topic},  # type: ignore[attr-defined]
+        )
+        path.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"exported {len(doc['missions'])} missions and {len(doc['sites'].get('maps', {}))} maps to {path}")
+        return 0
+
+    try:
+        doc = json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError) as e:
+        print(f"{path}: {e}")
+        return 2
+    errors, warnings, book, _missions = check_project(doc)
+    for w in warnings:
+        print(f"  warning {w}")
+    if errors or book is None:
+        for e in errors:
+            print(f"  error   {e}")
+        print(f"{path}: not imported, {len(errors)} errors. Nothing was written.")
+        return 1
+    result = write_project(store, doc, book, replace=args.replace)
+    deleted = f"; deleted {', '.join(result['deleted'])}" if result["deleted"] else ""
+    print(f"imported {path} into {home}: saved {', '.join(result['saved']) or 'nothing'}{deleted}")
+    print("A running mission_runner picks this up after a restart: sudo systemctl restart mission_runner")
     return 0
 
 

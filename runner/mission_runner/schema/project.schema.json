@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waspindustry.dev/schemas/mission/1/project.schema.json",
+  "title": "Project",
+  "description": "Everything set up for one deployment: maps with their points and lanes, the missions, and project settings. Saved by Mission Builder as a .mproj file and imported by mission_runner.",
+  "type": "object",
+  "required": ["schema", "name", "sites", "missions"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "project/1" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "description": { "type": "string" },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" },
+    "settings": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "robot_url": { "type": "string" },
+        "request_topic": { "type": "string", "pattern": "^/" },
+        "answer_topic": { "type": "string", "pattern": "^/" }
+      }
+    },
+    "sites": {
+      "type": "object",
+      "description": "A sites/1 document; validated against sites.schema.json.",
+      "required": ["schema"],
+      "properties": { "schema": { "const": "sites/1" } }
+    },
+    "missions": {
+      "type": "array",
+      "description": "mission/1 documents; each validated against mission.schema.json. Names must be unique.",
+      "items": {
+        "type": "object",
+        "required": ["schema", "name"],
+        "properties": { "schema": { "const": "mission/1" }, "name": { "type": "string" } }
+      }
+    }
+  }
+}

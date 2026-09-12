@@ -1,0 +1,52 @@
+{
+  "schema": "mission/1",
+  "name": "inspect_route",
+  "title": "Inspection round with requests",
+  "description": "Drives only on the drawn lanes, passing B on the way to Conveyor1, and at each stop asks for a decision on /iviz/request. iViz's Dashboard answers it, and so can any node that echoes the request id back on /iviz/answer.",
+  "policy": "queue",
+  "priority": 50,
+  "flow": [
+    { "id": "ready", "type": "nav.wait_active" },
+
+    { "id": "to_conveyor", "type": "nav.follow_route", "name": "Drive to the conveyor via B", "through": ["B"], "to": "Conveyor1" },
+    {
+      "id": "check_part",
+      "type": "ros.request",
+      "name": "Is the part in place?",
+      "text": "Part in place at Conveyor1?",
+      "options": ["OK", "Reject"],
+      "default": "OK",
+      "timeout_s": 120,
+      "on_timeout": "default",
+      "data": { "check": "part_present" },
+      "out": "part"
+    },
+    {
+      "id": "rejected",
+      "type": "if",
+      "name": "Stop if rejected",
+      "condition": "part.value.answer == 'Reject'",
+      "then": [
+        { "id": "go_home_rejected", "type": "nav.follow_route", "to": "Home" },
+        { "id": "end_rejected", "type": "end", "result": "failed", "message": "part rejected at Conveyor1" }
+      ]
+    },
+
+    { "id": "to_rack", "type": "nav.follow_route", "name": "Drive to the rack", "to": "Rack3" },
+    {
+      "id": "confirm_drop",
+      "type": "ros.request",
+      "name": "Confirm the drop",
+      "text": "Unloaded at Rack3?",
+      "options": ["Done", "Retry"],
+      "timeout_s": 300,
+      "on_timeout": "fail",
+      "request_topic": "/iviz/request",
+      "answer_topic": "/iviz/answer",
+      "out": "drop"
+    },
+
+    { "id": "go_home", "type": "nav.follow_route", "name": "Back home", "to": "Home" },
+    { "id": "done", "type": "log", "text": "Round finished: part ${part.value.answer} by ${part.value.by}, drop ${drop.value.answer}" }
+  ]
+}

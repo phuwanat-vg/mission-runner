@@ -102,6 +102,8 @@ class HttpServer:
         r.add_post("/api/prompt/{id}/answer", self.post_answer)
         r.add_get("/api/sites", self.get_sites)
         r.add_put("/api/sites", self.put_sites)
+        r.add_get("/api/project", self.get_project)
+        r.add_put("/api/project", self.put_project)
         r.add_get("/api/maps/{name}/image", self.get_map_image)
         r.add_post("/api/maps/{name}/filters", self.post_map_filters)
         r.add_get("/api/maps/{name}", self.get_map_meta)
@@ -391,6 +393,15 @@ class HttpServer:
             return _error("no keepout or speed_limit zones to export", 400)
         self.r.events.log("info", f"wrote {len(out)} costmap filter mask(s) for map '{name}' into {directory}")
         return _json({"ok": True, "masks": out, "directory": str(directory)})
+
+    async def get_project(self, request: web.Request) -> web.Response:
+        return _json(self.r.export_project(request.query.get("name", "")))
+
+    async def put_project(self, request: web.Request) -> web.Response:
+        doc = await self._body(request)
+        replace = request.query.get("replace", "false").lower() in ("1", "true", "yes")
+        ok, out = await self.r.import_project(doc, replace)
+        return _json({"ok": ok, **out}, 200 if ok else 400)
 
     async def get_robot_pose(self, request: web.Request) -> web.Response:
         st = self.r.backend.robot_state()

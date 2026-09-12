@@ -143,6 +143,7 @@ These wrap `nav2_simple_commander.BasicNavigator` one to one.
 |---|---|---|
 | `nav.wait_active` | `timeout_s` | `waitUntilNav2Active()` |
 | `nav.set_initial_pose` | `pose` | publishes `/initialpose` |
+| `nav.follow_route` | `to`, `through[]`, `from`, `on_no_route`, `apply_speed_limits`, `behavior_tree` | plans on the map's route graph (one-way and blocked lanes honoured) and sends only on-lane waypoints with `goThroughPoses`; `value` = `{route, legs, length_m, from, to, through, direct}` |
 | `nav.go_to_pose` | `pose`, `behavior_tree` | `goToPose()`; `value` = final feedback |
 | `nav.go_through_poses` | `poses[]`, `behavior_tree` | `goThroughPoses()` |
 | `nav.follow_waypoints` | `poses[]` | `followWaypoints()`; `value.missed` = indexes that failed |
@@ -180,6 +181,7 @@ without touching the global Nav2 configuration.
 | `ros.call_service` | `service`, `srv_type`, `request`; `value` = response |
 | `ros.call_action` | `action`, `action_type`, `goal`; `value` = result. Covers any Nav2 action not wrapped above (route server, coverage, ...). |
 | `ros.set_param` | `node`, `params` (name → value) |
+| `ros.request` | `text`, `options`, `default`, `timeout_s`, `on_timeout` (`default` \| `fail`), `request_topic`, `answer_topic`, `station`, `data`; publishes a JSON request on a `std_msgs/String` topic and waits for `{id, answer, by}` with the same id. `value` = `{id, answer, by, timed_out}`. Defaults: `/iviz/request`, `/iviz/answer` (runner.yaml), `station` = the last `nav.follow_route` target. The exchange is the one iViz answers; any node can answer too. Details in [`mission-builder-v2.md`](mission-builder-v2.md#ros-request) |
 
 Message fields are plain JSON matching the ROS type; values may use
 expressions.

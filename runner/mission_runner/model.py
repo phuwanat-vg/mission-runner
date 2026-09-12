@@ -817,6 +817,9 @@ def validate_mission(
             for key in SITE_NAME_PARAMS.get(step.type, ()):
                 if step.params.get(key):
                     refs.append(((*path, key), step.params[key]))
+            if step.type == "nav.follow_route":
+                for i, v in enumerate(step.params.get("through") or []):
+                    refs.append(((*path, "through", i), v))
             for rpath, value in refs:
                 site = _is_site_ref(value)
                 if site is None:

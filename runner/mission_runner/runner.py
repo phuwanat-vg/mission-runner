@@ -349,6 +349,46 @@ class Runner:
         self.events.log("info", f"mission '{saved.name}' deployed (v{saved.version})")
         return saved, warnings
 
+    def export_project(self, name: str = "") -> dict[str, Any]:
+        from .project import export_project
+
+        return export_project(
+            self.store,
+            name or self.config.home.name,
+            {"request_topic": self.config.request_topic, "answer_topic": self.config.answer_topic},
+        )
+
+    async def import_project(self, doc: Any, replace: bool = False) -> tuple[bool, dict[str, Any]]:
+        """Validate a whole project, then write it and re-arm triggers. Nothing is
+        written when any part is invalid."""
+        from .project import check_project, write_project
+
+        errors, warnings, book, _missions = check_project(
+            doc,
+            connectors=self._connector_names(),
+            capabilities=self.backend.capabilities(),
+            trigger_capabilities=self.registry.trigger_capabilities(),
+        )
+        if errors or book is None:
+            return False, {"errors": [e.as_dict() for e in errors], "warnings": [w.as_dict() for w in warnings]}
+        cur = self.dispatcher.current
+        result = write_project(self.store, doc, book, replace=replace, protect={cur.mission} if cur else set())
+        if self._current_map not in book.maps:
+            self.set_current_map(book.default_map)
+        for name in result["deleted"]:
+            await self.triggers.disarm(name)
+            await self.triggers.disarm(f"{name}:interrupts")
+            self.trigger_problems.pop(name, None)
+        for name in result["saved"]:
+            m = self.store.get(name)
+            if m is not None:
+                self._render_trees(m)
+                await self.arm_mission(m)
+        self.events.emit("sites.changed")
+        self.events.emit("missions.changed", names=sorted({*result["saved"], *result["deleted"]}))
+        self.events.log("info", f"project imported: {len(result['saved'])} saved, {len(result['deleted'])} deleted")
+        return True, {**result, "warnings": [w.as_dict() for w in warnings]}
+
     async def delete_mission(self, name: str) -> bool:
         await self.triggers.disarm(name)
         await self.triggers.disarm(f"{name}:interrupts")

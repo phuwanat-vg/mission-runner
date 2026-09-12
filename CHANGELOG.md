@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **`ros.request` step**: publish a JSON request and wait for the answer with the
+  same id over two `std_msgs/String` topics (default `/iviz/request` and
+  `/iviz/answer`, set in `runner.yaml` or per step). It is the exchange iViz's
+  Dashboard answers, and any node can answer too. Options, default, timeout
+  that falls back to the default or fails, a `station` that defaults to the last
+  route target, and free `data`. Events `request` and `request.answered`
+- **`nav.follow_route.through`**: pass several sites in order before `to`, every
+  leg planned on the route graph, still sent to Nav2 as on-lane waypoints only
+- **Project files (`project/1`, `.mproj`)**: `GET /api/project` exports the
+  robot's sites and missions; `PUT /api/project` validates a whole project and
+  writes nothing if any mission is invalid, then re-arms triggers
+  (`replace=true` also removes missions not in the project). Offline, with no
+  network or GUI: `mission_runner project import|export <file>`
+- Example `inspect_route`: a round on the lanes with a request at each stop
 - **Route graph**: sites can be connected by `edges` (one-way, speed cap, blocked,
   cost). New `nav.follow_route` step plans over the graph and drives only the
   lanes that were drawn, with `on_no_route` and optional per-lane speed limits.

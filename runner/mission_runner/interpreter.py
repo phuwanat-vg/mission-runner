@@ -94,6 +94,8 @@ class RunContext:
     loop_state: dict[str, int] = field(default_factory=dict)
     depth: int = 0
     last_feedback_mono: float = 0.0
+    #: site the last nav.follow_route drove to (the default station of ros.request)
+    last_site: str | None = None
 
     def scope(self, services: Services) -> dict[str, Any]:
         sites = services.store.sites
@@ -285,7 +287,7 @@ class Interpreter:
             ctx.step_task = task
             t0 = time.monotonic()
             # wait_event / ask_user apply timeout_s themselves (with a better message).
-            timeout = None if step.type in ("wait_event", "ask_user") else step.timeout_s
+            timeout = None if step.type in ("wait_event", "ask_user", "ros.request") else step.timeout_s
             try:
                 done, _ = await asyncio.wait({task}, timeout=timeout)
             except asyncio.CancelledError:
@@ -600,6 +602,8 @@ class Interpreter:
                 if str(p.get("on_timeout", "abort")) == "continue":
                     return {"timeout": True}
                 raise
+        if t == "ros.request":
+            return await self._ros_request(step, ctx, scope)
         if t == "ask_user":
             options = [str(o) for o in (resolve(p.get("options"), scope) or ["Continue", "Stop"])]
             default = resolve(p.get("default"), scope)
@@ -656,14 +660,33 @@ class Interpreter:
                 raise StepFailed(f"map '{mapdef.name}' has no sites to start from")
             start_name = near.name
 
-        legs = mapdef.plan_route(start_name, goal_name)
+        through_raw = resolve(p.get("through"), scope) if p.get("through") is not None else []
+        if not isinstance(through_raw, list):
+            raise StepFailed("'through' must be a list of sites")
+        through = [str(x) for x in through_raw]
+        for name in through:
+            if name not in mapdef.sites:
+                raise StepFailed(f"site '{name}' not found in map '{mapdef.name}'")
+
+        # Plan every leg on the graph: start -> through... -> to.
         frame = mapdef.frame
-        if legs is None:
-            if str(p.get("on_no_route", "fail")) != "direct":
-                raise StepFailed(f"no route from '{start_name}' to '{goal_name}' on this map's graph")
-            s.events.log("warn", f"no route from '{start_name}' to '{goal_name}'; driving direct", run_id=ctx.run.id, step_id=step.id)
-            legs = []
+        stops = [start_name, *through, goal_name]
+        legs = []
+        direct_hops: list[str] = []
+        for a, b in zip(stops[:-1], stops[1:]):
+            leg = mapdef.plan_route(a, b)
+            if leg is None:
+                if str(p.get("on_no_route", "fail")) != "direct":
+                    raise StepFailed(f"no route from '{a}' to '{b}' on this map's graph")
+                s.events.log("warn", f"no route from '{a}' to '{b}'; driving direct", run_id=ctx.run.id, step_id=step.id)
+                direct_hops.append(b)
+                from .model import RouteLeg
+
+                sa, sb = mapdef.sites[a], mapdef.sites[b]
+                leg = [RouteLeg(a, b, math.hypot(sb.x - sa.x, sb.y - sa.y))]
+            legs.extend(leg)
         route = [start_name, *[leg.to for leg in legs]]
+        ctx.last_site = goal_name
         bt = self._behavior_tree(p.get("behavior_tree"), ctx, step)
         poses = [Pose(mapdef.sites[n].x, mapdef.sites[n].y, mapdef.sites[n].yaw_deg, frame) for n in route[1:]] or [
             Pose(goal_site.x, goal_site.y, goal_site.yaw_deg, frame)
@@ -675,6 +698,8 @@ class Interpreter:
             "length_m": round(sum(leg.length_m for leg in legs), 2),
             "from": start_name,
             "to": goal_name,
+            "through": through,
+            "direct": direct_hops,
         }
 
         if bool(p.get("apply_speed_limits", False)) and any(leg.speed_mps for leg in legs):
@@ -699,6 +724,83 @@ class Interpreter:
         else:
             out = await self._nav(s.backend.go_through_poses(poses, bt, fb))
         result["result"] = out
+        return result
+
+    async def _ros_request(self, step: Step, ctx: RunContext, scope: dict[str, Any]) -> dict[str, Any]:
+        """Publish a JSON request and wait for the answer with the same id, over
+        two std_msgs/String topics. iViz's Dashboard answers this exchange, and
+        so can any node: it only has to echo the id back with an answer."""
+        import json
+        import uuid
+
+        s = self.s
+        p = step.params
+        cfg = getattr(s, "config", None)
+        request_topic = str(resolve(p.get("request_topic"), scope) or getattr(cfg, "request_topic", "/iviz/request"))
+        answer_topic = str(resolve(p.get("answer_topic"), scope) or getattr(cfg, "answer_topic", "/iviz/answer"))
+        options = [str(o) for o in (resolve(p.get("options"), scope) or [])]
+        default = resolve(p.get("default"), scope)
+        default = None if default is None else str(default)
+        timeout_s = step.timeout_s or (float(p["timeout_s"]) if p.get("timeout_s") else None)
+        on_timeout = str(p.get("on_timeout", "default"))
+        station = resolve(p.get("station"), scope) if p.get("station") else ctx.last_site
+        rid = uuid.uuid4().hex[:8]
+        body: dict[str, Any] = {
+            "id": rid,
+            "text": str(resolve(p.get("text"), scope) or ""),
+            "options": options,
+            "source": "mission_runner",
+            "mission": ctx.mission.name,
+            "run_id": ctx.run.id,
+            "step_id": step.id,
+        }
+        if default is not None:
+            body["default"] = default
+        if timeout_s:
+            body["timeout_s"] = timeout_s
+        if station:
+            body["station"] = str(station)
+        if p.get("data") is not None:
+            body["data"] = resolve(p.get("data"), scope)
+
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[dict[str, Any]] = loop.create_future()
+
+        def on_answer(payload: dict[str, Any]) -> None:
+            raw = payload.get("data", payload)
+            if isinstance(raw, str):
+                try:
+                    msg = json.loads(raw)
+                except ValueError:
+                    return
+            elif isinstance(raw, dict):
+                msg = raw
+            else:
+                return
+            if not isinstance(msg, dict) or str(msg.get("id")) != rid or fut.done():
+                return
+            fut.set_result(msg)
+
+        # Listen before publishing, so a fast answerer cannot beat us.
+        source = EventSource(type="ros.topic", params={"topic": answer_topic, "msg_type": "std_msgs/msg/String"})
+        armed = await s.triggers.arm(source, on_answer, label=f"ros.request/{step.id}")
+        try:
+            await s.backend.publish(request_topic, "std_msgs/msg/String", {"data": json.dumps(body, default=str)})
+            s.events.emit("request", run_id=ctx.run.id, step_id=step.id, request=body, request_topic=request_topic, answer_topic=answer_topic)
+            try:
+                msg = await (asyncio.wait_for(asyncio.shield(fut), timeout=timeout_s) if timeout_s else fut)
+            except asyncio.TimeoutError:
+                if on_timeout == "default" and default is not None:
+                    s.events.log("warn", f"no answer to '{body['text']}' within {timeout_s:g} s; using '{default}'", run_id=ctx.run.id, step_id=step.id)
+                    return {"id": rid, "answer": default, "by": "timeout", "timed_out": True}
+                raise StepTimeout(f"no answer on {answer_topic} within {timeout_s:g} s") from None
+        finally:
+            await armed.disarm()
+        answer = msg.get("answer")
+        if options and str(answer) not in options:
+            s.events.log("warn", f"answer '{answer}' is not one of {options}", run_id=ctx.run.id, step_id=step.id)
+        result = {"id": rid, "answer": answer, "by": msg.get("by", ""), "timed_out": False}
+        s.events.emit("request.answered", run_id=ctx.run.id, step_id=step.id, id=rid, answer=answer, by=result["by"])
         return result
 
     async def _loop(self, step: Step, ctx: RunContext, scope: dict[str, Any]) -> int:

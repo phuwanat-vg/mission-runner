@@ -89,7 +89,11 @@ plus its `.pgm`/`.png`). When the file is missing or unreadable the runner
 draws a plain room around that map's sites instead and reports
 `"source": "synthetic"`, so the editor always has a floor to place things on.
 
+| Method | Path | Result |
+|---|---|---|
 | `POST` | `/api/maps/{name}/filters` | writes Nav2 costmap filter masks for this map's zones into `<home>/filters/`; body `{resolution?, max_speed_mps?}` → `{ok, masks: [{kind, yaml, image, zones}], directory}` |
+| `GET` | `/api/project?name=` | the robot's sites and missions as a `project/1` document (see [`mission-builder-v2.md`](mission-builder-v2.md)) |
+| `PUT` | `/api/project?replace=false` | import a `project/1` document. Everything is validated first and nothing is written if any mission is invalid (`400 {ok:false, errors}`, paths prefixed `missions/<name>`). Saves sites and missions and re-arms triggers; `replace=true` also deletes robot missions not in the project, except a running one. `200 {ok, saved, deleted, kept, warnings}` |
 | `GET` | `/api/robot/pose` | `{x, y, yaw_deg, frame}` (for "capture site from robot") |
 | `GET` | `/api/connectors` | `{name: {type, connected, available, reason, config, configured}}` with secrets redacted. Names referenced by a deployed mission but absent from `connectors.yaml` are listed with `configured: false`, so a mission can be written before the broker or the PLC exists. |
 | `GET` | `/api/capabilities` | `{backend, steps: {type: {available, reason}}, triggers: {...}, connectors: [...], ros_distro}` |
@@ -132,6 +136,7 @@ then one JSON object per event:
 | `feedback` | `run_id, step_id, feedback` (≤ 2 Hz) |
 | `log` | `t, level, text, run_id?, step_id?` |
 | `prompt` / `prompt.answered` | `prompt`, `answer` |
+| `request` / `request.answered` | a `ros.request` step published `request` on `request_topic` / the answer `{id, answer, by}` arrived |
 | `robot` | `x, y, yaw_deg, frame, battery` (≤ 2 Hz) |
 | `missions.changed` | `names: []` |
 | `sites.changed` | |
