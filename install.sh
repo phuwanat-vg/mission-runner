@@ -168,6 +168,9 @@ main() {
   fi
   echo
   mission_runner autostart list </dev/null || true
+  echo
+  echo "To use 'mission_runner' in THIS terminal, run first:  source $WS/install/setup.bash"
+  echo "(new terminals get it from ~/.bashrc)"
 }
 
 say() { printf '==> %s\n' "$*"; }
