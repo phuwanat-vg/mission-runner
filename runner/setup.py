@@ -46,6 +46,11 @@ setup(
         "console_scripts": [
             "mission_runner = mission_runner.cli:main",
             "station_answer = mission_runner.station_answer:main",
+            # example nodes to copy (docs/example-nodes.md)
+            "example_start_mission = mission_runner.examples.start_mission:main",
+            "example_answer_requests = mission_runner.examples.answer_requests:main",
+            "example_ask_robot = mission_runner.examples.ask_robot:main",
+            "example_watch_missions = mission_runner.examples.watch_missions:main",
         ]
     },
 )
