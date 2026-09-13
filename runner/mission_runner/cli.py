@@ -90,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     # ros2 launch passes "--ros-args ..."; strip them before argparse sees them.
     if "--ros-args" in argv:
         argv = argv[: argv.index("--ros-args")]
-    if not argv or argv[0].startswith("-"):
+    if not argv or (argv[0].startswith("-") and argv[0] not in ("--version", "-h", "--help")):
         argv = ["run", *argv]
     args = build_parser().parse_args(argv)
 
