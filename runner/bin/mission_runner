@@ -1,0 +1,4 @@
+#!/bin/sh
+# Puts `mission_runner` on the PATH after `source install/setup.bash`, so
+# `mission_runner autostart list` works without `ros2 run mission_runner mission_runner`.
+exec python3 -m mission_runner "$@"

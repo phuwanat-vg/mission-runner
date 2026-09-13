@@ -1,6 +1,7 @@
 """ros2 launch mission_runner mission_runner.launch.py [home:=~/.mission] [port:=8080] [sim:=false]
 
-Add it to your Nav2 bring-up so the runner starts with the robot.
+Starts the runner alone. bringup.launch.py adds foxglove_bridge, station answer
+nodes and a project import (docs/robot-startup.md).
 """
 
 from launch import LaunchDescription
@@ -16,6 +17,8 @@ def generate_launch_description() -> LaunchDescription:
     host = LaunchConfiguration("host")
     sim = LaunchConfiguration("sim")
     log_level = LaunchConfiguration("log_level")
+    # No name= on the nodes: a remapped node name applies to every node in the
+    # process (BasicNavigator's too). The runner names its own node.
     return LaunchDescription(
         [
             DeclareLaunchArgument("home", default_value="~/.mission", description="Data directory (missions, sites, run log)"),
@@ -26,7 +29,6 @@ def generate_launch_description() -> LaunchDescription:
             Node(
                 package="mission_runner",
                 executable="mission_runner",
-                name="mission_runner",
                 output="screen",
                 arguments=["run", "--home", home, "--port", port, "--host", host, "--log-level", log_level],
                 condition=UnlessCondition(sim),
@@ -34,7 +36,6 @@ def generate_launch_description() -> LaunchDescription:
             Node(
                 package="mission_runner",
                 executable="mission_runner",
-                name="mission_runner",
                 output="screen",
                 arguments=["run", "--sim", "--home", home, "--port", port, "--host", host, "--log-level", log_level],
                 condition=IfCondition(sim),

@@ -78,6 +78,9 @@ class Runner:
         self.ros: Any = None
         self.live: Any = None
         self.trigger_problems: dict[str, list[str]] = {}
+        from .autostart import AutostartManager
+
+        self.autostart = AutostartManager(config.home, config.autostart)
 
     # ----- construction ---------------------------------------------------------------
 

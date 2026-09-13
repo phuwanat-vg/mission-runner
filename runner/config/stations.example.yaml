@@ -1,0 +1,29 @@
+# Station answer nodes for bringup.launch.py:
+#   ros2 launch mission_runner bringup.launch.py stations:=~/.mission/stations.yaml
+# Each entry becomes one `station_answer` node named station_answer_<slug>.
+# Parameters: see docs/robot-startup.md, section 3.
+
+stations:
+  # Answers every request at once with the request's default (or its first option).
+  - station: Home
+    mode: auto
+
+  # Answers from a sensor: true -> true_answer, false -> false_answer.
+  - station: Conveyor 1
+    mode: topic
+    source_topic: /conveyor1/part_present
+    source_type: std_msgs/msg/Bool
+    true_answer: OK
+    false_answer: Reject
+    max_age_s: 2.0
+
+  # Answers with a std_srvs/srv/Trigger service: success -> true_answer.
+  # - station: Washer
+  #   mode: service
+  #   service: /washer/ready
+
+  # Raspberry Pi buttons (needs gpiozero: sudo apt install python3-gpiozero).
+  # - station: Rack3
+  #   mode: gpio
+  #   gpio_pins: [17, 27]
+  #   gpio_answers: [Done, Retry]

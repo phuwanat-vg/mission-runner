@@ -20,6 +20,10 @@
   <exec_depend>tf2_ros_py</exec_depend>
   <exec_depend>rosidl_runtime_py</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
+  <!-- bringup.launch.py; gpio station answers also need python3-gpiozero, installed by hand -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>foxglove_bridge</exec_depend>
   <exec_depend>python3-aiohttp</exec_depend>
   <exec_depend>python3-jsonschema</exec_depend>
   <exec_depend>python3-yaml</exec_depend>

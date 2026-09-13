@@ -179,3 +179,34 @@ def test_cli_project_import_export(tmp_path):
     h2 = tmp_path / "h2"
     assert main(["project", "import", str(f), "--home", str(h2)]) == 1
     assert not (h2 / "missions" / "x.json").exists()
+
+
+def test_cli_run_with_project_imports_before_starting(tmp_path, monkeypatch, capsys):
+    from mission_runner import cli
+
+    started: list[set] = []
+
+    async def fake_serve(cfg):
+        started.append({p.stem for p in (cfg.home / "missions").glob("*.json")})
+        return 0
+
+    monkeypatch.setattr(cli, "_serve", fake_serve)
+    home = tmp_path / "home"
+    proj = {"schema": "project/1", "name": "t", "sites": example("sites"), "missions": [example("go_to_point")]}
+    f = tmp_path / "p.mproj"
+    f.write_text(json.dumps(proj), encoding="utf-8")
+    assert cli.main(["run", "--sim", "--home", str(home), "--project", str(f), "--ros-args", "-r", "__node:=x"]) == 0
+    assert started == [{"go_to_point"}]
+
+    # --project-replace removes what is not in the project; an empty --project (the launch default) is ignored
+    (home / "missions" / "old.json").write_text(json.dumps(mission("old", [{"type": "log", "text": "x"}])), encoding="utf-8")
+    assert cli.main(["run", "--sim", "--home", str(home), "--project", str(f), "--project-replace"]) == 0
+    assert started[-1] == {"go_to_point"}
+    assert cli.main(["run", "--sim", "--home", str(home), "--project", ""]) == 0 and len(started) == 3
+
+    bad = {**proj, "missions": [mission("x", [{"type": "nav.follow_route", "to": "Nowhere"}])]}
+    f.write_text(json.dumps(bad), encoding="utf-8")
+    h2 = tmp_path / "h2"
+    assert cli.main(["run", "--sim", "--home", str(h2), "--project", str(f)]) == 1
+    assert len(started) == 3 and not (h2 / "missions" / "x.json").exists()
+    assert "not started" in capsys.readouterr().out

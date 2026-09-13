@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -60,9 +61,11 @@ class HttpServer:
     async def start(self, host: str, port: int) -> None:
         self._app_runner = web.AppRunner(self.app, access_log=None)
         await self._app_runner.setup()
-        # reuse_address=False so a second runner fails loudly instead of a stale
-        # process quietly keeping the port on Windows.
-        self._runner_site = web.TCPSite(self._app_runner, host, port, reuse_address=False)
+        # Windows: reuse_address=False so a second runner fails loudly instead of a
+        # stale process quietly keeping the port. Linux: SO_REUSEADDR never lets two
+        # listeners share a port, and without it a restart (systemctl restart) fails
+        # with "address already in use" while old connections sit in TIME_WAIT.
+        self._runner_site = web.TCPSite(self._app_runner, host, port, reuse_address=sys.platform != "win32")
         await self._runner_site.start()
         log.info("http on http://%s:%d", host, port)
 
@@ -111,6 +114,13 @@ class HttpServer:
         r.add_post("/api/preview/dryrun", self.post_preview_dryrun)
         r.add_get("/api/robot/pose", self.get_robot_pose)
         r.add_get("/api/connectors", self.get_connectors)
+        r.add_get("/api/autostart", self.get_autostart)
+        r.add_get("/api/autostart/browse", self.get_autostart_browse)
+        r.add_post("/api/autostart/linger", self.post_autostart_linger)
+        r.add_put("/api/autostart/{name}", self.put_autostart)
+        r.add_delete("/api/autostart/{name}", self.delete_autostart)
+        r.add_post("/api/autostart/{name}/{verb:start|stop|restart}", self.post_autostart_action)
+        r.add_get("/api/autostart/{name}/log", self.get_autostart_log)
         r.add_get("/api/events", self.ws_events)
         r.add_post("/hooks/{path:.*}", self.post_hook)
         r.add_post("/api/sim/topic", self.post_sim_topic)
@@ -412,6 +422,96 @@ class HttpServer:
 
     async def get_connectors(self, request: web.Request) -> web.Response:
         return _json(self.r.connector_status())
+
+    # ----- autostart services (docs/robot-startup.md) ----------------------------------------
+
+    async def _autostart(self, fn: Any, *args: Any, change: str | None = None, **kwargs: Any) -> web.Response:
+        """Run a blocking AutostartManager call off the loop; errors become JSON."""
+        from .autostart import AutostartError
+
+        try:
+            out = await asyncio.to_thread(fn, *args, **kwargs)
+        except AutostartError as e:
+            return _json({"error": e.errors[0] if e.errors else "error", "errors": e.errors}, e.status)
+        if change:
+            self.r.events.emit("autostart.changed", name=change)
+        return _json(out)
+
+    def _autostart_disabled(self) -> web.Response | None:
+        if not self.r.autostart.enabled:
+            msg = "autostart is disabled on this robot (autostart.enabled: false in runner.yaml)"
+            return _json({"error": msg, "errors": [msg]}, 403)
+        return None
+
+    def _later(self, delay_s: float, fn: Any, *args: Any, **kwargs: Any) -> None:
+        """Act on the runner's own service after the response went out."""
+
+        async def go() -> None:
+            await asyncio.sleep(delay_s)
+            try:
+                await asyncio.to_thread(fn, *args, **kwargs)
+            except Exception:  # noqa: BLE001
+                log.exception("deferred autostart action failed")
+
+        self.r._spawn(go(), "autostart-self")
+
+    async def get_autostart(self, request: web.Request) -> web.Response:
+        return await self._autostart(self.r.autostart.overview)
+
+    async def get_autostart_browse(self, request: web.Request) -> web.Response:
+        # (a Response is a MutableMapping and falsy when empty: compare with None, not `or`)
+        if (denied := self._autostart_disabled()) is not None:
+            return denied
+        return await self._autostart(self.r.autostart.browse, request.query.get("path") or None)
+
+    async def put_autostart(self, request: web.Request) -> web.Response:
+        if (denied := self._autostart_disabled()) is not None:
+            return denied
+        name = request.match_info["name"]
+        body = await self._body(request)
+        mgr = self.r.autostart
+        is_self = mgr.is_self(name)
+        resp = await self._autostart(mgr.put, name, body, defer_restart=is_self, change=name)
+        if is_self and resp.status == 200 and isinstance(body, dict) and body.get("start_now") is True:
+            self._later(1.0, mgr.action, name, "restart", no_block=True)
+        return resp
+
+    async def post_autostart_action(self, request: web.Request) -> web.Response:
+        if (denied := self._autostart_disabled()) is not None:
+            return denied
+        name, verb = request.match_info["name"], request.match_info["verb"]
+        mgr = self.r.autostart
+        if verb in ("stop", "restart") and mgr.is_self(name):
+            resp = await self._autostart(mgr.service, name, change=name)
+            if resp.status == 200:
+                self._later(1.0, mgr.action, name, verb, no_block=True)
+            return resp
+        return await self._autostart(mgr.action, name, verb, change=name)
+
+    async def delete_autostart(self, request: web.Request) -> web.Response:
+        if (denied := self._autostart_disabled()) is not None:
+            return denied
+        name = request.match_info["name"]
+        mgr = self.r.autostart
+        is_self = mgr.is_self(name)
+        resp = await self._autostart(mgr.remove, name, stop=not is_self, change=name)
+        if is_self and resp.status == 200:
+            self._later(1.0, mgr.stop_later, name)
+        return resp
+
+    async def get_autostart_log(self, request: web.Request) -> web.Response:
+        if (denied := self._autostart_disabled()) is not None:
+            return denied
+        try:
+            lines = int(request.query.get("lines", "200"))
+        except ValueError:
+            return _json({"error": "lines must be a number", "errors": ["lines must be a number"]}, 400)
+        return await self._autostart(self.r.autostart.log, request.match_info["name"], lines)
+
+    async def post_autostart_linger(self, request: web.Request) -> web.Response:
+        if (denied := self._autostart_disabled()) is not None:
+            return denied
+        return await self._autostart(self.r.autostart.enable_linger)
 
     # ----- hooks / sim ------------------------------------------------------------------------
 

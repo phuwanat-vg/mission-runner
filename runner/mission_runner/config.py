@@ -34,6 +34,9 @@ class RunnerConfig:
     live_topics: dict[str, Any] = field(default_factory=dict)
     sim: dict[str, Any] = field(default_factory=lambda: {"speed_mps": 0.6, "turn_rate_dps": 90.0, "time_scale": 1.0, "start": {"x": 0.0, "y": 0.0, "yaw_deg": 0.0}, "battery": 0.85})
     gpio: dict[str, Any] = field(default_factory=dict)
+    # Autostart services (systemd user units), see docs/robot-startup.md.
+    # roots: where launch files may be browsed and picked ("~" = the runner user's home).
+    autostart: dict[str, Any] = field(default_factory=lambda: {"enabled": True, "roots": ["~", "/opt/ros"]})
 
     @classmethod
     def load(cls, home: str | os.PathLike[str] | None = None, **overrides: Any) -> RunnerConfig:

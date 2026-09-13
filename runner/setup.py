@@ -5,7 +5,8 @@ from setuptools import find_packages, setup
 
 package_name = "mission_runner"
 here = os.path.dirname(os.path.abspath(__file__))
-examples = glob(os.path.join(here, "..", "examples", "*.json"))
+# data_files must be relative (setuptools rejects absolute paths); colcon runs this from here.
+examples = [os.path.relpath(p, here) for p in sorted(glob(os.path.join(here, "..", "examples", "*.json")))]
 
 
 def webui_files():
@@ -27,6 +28,8 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
+        # colcon adds <prefix>/bin to PATH, so the CLI works as plain `mission_runner`
+        ("bin", ["bin/mission_runner"]),
         ("share/" + package_name + "/launch", glob("launch/*.py")),
         ("share/" + package_name + "/config", glob("config/*.yaml")),
         ("share/" + package_name + "/deploy", glob("deploy/*")),
@@ -39,5 +42,10 @@ setup(
     description="Executes declarative Nav2 missions with triggers, interrupts and an HTTP/WS API.",
     license="Apache-2.0",
     tests_require=["pytest"],
-    entry_points={"console_scripts": ["mission_runner = mission_runner.cli:main"]},
+    entry_points={
+        "console_scripts": [
+            "mission_runner = mission_runner.cli:main",
+            "station_answer = mission_runner.station_answer:main",
+        ]
+    },
 )

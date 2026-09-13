@@ -28,3 +28,9 @@ sim:
   time_scale: 1.0
   start: { x: 0.0, y: 0.0, yaw_deg: 0.0 }
   battery: 0.85
+
+# Autostart services: systemd user units that launch the robot and the mission
+# layer at boot (Mission Builder: ... menu -> Robot startup, or `mission_runner autostart`).
+autostart:
+  enabled: true              # false: the HTTP API may only list services (the CLI still works)
+  roots: ["~", /opt/ros]     # launch files may only be browsed and picked under these
