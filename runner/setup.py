@@ -35,7 +35,7 @@ setup(
         ("share/" + package_name + "/deploy", glob("deploy/*")),
         ("share/" + package_name + "/examples", examples),
     ],
-    install_requires=["setuptools", "aiohttp>=3.8", "jsonschema>=4.0", "PyYAML", "paho-mqtt", "croniter"],
+    install_requires=["setuptools", "aiohttp>=3.8", "jsonschema>=4.0", "PyYAML", "paho-mqtt"],  # croniter: optional, cron triggers only
     zip_safe=False,
     maintainer="Wasp Industry",
     maintainer_email="kaikangofusan@gmail.com",

@@ -99,6 +99,12 @@ main() {
     rosdep update --rosdistro "$DISTRO" </dev/null >/dev/null
     say "installing dependencies (rosdep install)"
     rosdep install --from-paths "$SRC" -y --ignore-src --rosdistro "$DISTRO" </dev/null
+    # Not in rosdep; only cron triggers need it, so a failure is a warning.
+    if ! python3 -c "import croniter" 2>/dev/null; then
+      say "installing python3-croniter (cron triggers)"
+      $SUDO apt-get install -y python3-croniter </dev/null \
+        || say "WARNING: python3-croniter could not be installed; cron triggers will not work"
+    fi
   else
     say "--no-sudo: skipping rosdep install; missing dependencies:"
     rosdep check --from-paths "$SRC" --ignore-src --rosdistro "$DISTRO" </dev/null || true

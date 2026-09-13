@@ -28,7 +28,7 @@
   <exec_depend>python3-jsonschema</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>python3-paho-mqtt</exec_depend>
-  <exec_depend>python3-croniter</exec_depend>
+  <!-- python3-croniter (cron triggers) has no rosdep key; install.sh installs it with apt -->
   <exec_depend condition="$ROS_DISTRO != ''">mission_msgs</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
