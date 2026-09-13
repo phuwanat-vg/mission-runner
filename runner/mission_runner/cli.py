@@ -153,6 +153,18 @@ async def _serve(cfg: object) -> int:
             signal.signal(sig, lambda *_: stop.set())
     try:
         await runner.start()
+    except OSError as e:
+        if e.errno not in (98, 10048):  # EADDRINUSE on Linux / Windows
+            logging.getLogger("mission").error("startup failed: %s", e, exc_info=True)
+        else:
+            port = cfg.http_port  # type: ignore[attr-defined]
+            logging.getLogger("mission").error(
+                "startup failed: port %s is already in use. Another mission_runner is probably running "
+                "(an autostart service? check: mission_runner autostart list). Stop that one, or use port:=<other>.",
+                port,
+            )
+        await runner.stop()
+        return 1
     except Exception as e:  # noqa: BLE001
         logging.getLogger("mission").error("startup failed: %s", e, exc_info=True)
         await runner.stop()
