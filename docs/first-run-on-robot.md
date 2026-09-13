@@ -79,7 +79,7 @@ If any of those fail, stop here. Nothing below can work until they do.
 **b. foxglove_bridge**
 
 ```bash
-ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765
+ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765 include_hidden:=true   # iViz needs the hidden action topics
 ```
 
 **c. mission_runner**
