@@ -113,6 +113,7 @@ class HttpServer:
         r.add_post("/api/preview/route", self.post_preview_route)
         r.add_post("/api/preview/dryrun", self.post_preview_dryrun)
         r.add_get("/api/robot/pose", self.get_robot_pose)
+        r.add_post("/api/robot/initial_pose", self.post_initial_pose)
         r.add_get("/api/connectors", self.get_connectors)
         r.add_get("/api/autostart", self.get_autostart)
         r.add_get("/api/autostart/browse", self.get_autostart_browse)
@@ -419,6 +420,53 @@ class HttpServer:
         if pose is None:
             return _error("robot pose unknown", 503)
         return _json(pose)
+
+    async def post_initial_pose(self, request: web.Request) -> web.Response:
+        """``{"site": "Home"}`` or ``{"x", "y", "yaw_deg"}``; answers once the localizer took it."""
+        import math
+
+        from .backends.base import Pose
+        from .types import StepFailed, StepTimeout, TaskCanceled
+
+        def fail(msg: str, status: int) -> web.Response:
+            return _json({"ok": False, "error": msg, "message": msg}, status)
+
+        body = await self._body(request)
+        if not isinstance(body, dict):
+            return fail('body must be {"site": name} or {"x", "y", "yaw_deg"}', 400)
+        mapdef = self.r.store.sites.map(self.r.current_map)
+        frame = mapdef.frame if mapdef else "map"
+        site_name: str | None = None
+        if "site" in body:
+            site_name = body["site"]
+            if not isinstance(site_name, str) or not site_name:
+                return fail("site must be a site name", 400)
+            site = mapdef.sites.get(site_name) if mapdef else None
+            if site is None:
+                return fail(f"site '{site_name}' not found in map '{self.r.current_map or '?'}'", 400)
+            pose = Pose(site.x, site.y, site.yaw_deg, frame)
+        else:
+            vals: list[float] = []
+            for key, required in (("x", True), ("y", True), ("yaw_deg", False)):
+                v = body.get(key, None if required else 0.0)
+                if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+                    return fail('body must be {"site": name} or {"x": number, "y": number, "yaw_deg": number}', 400)
+                vals.append(float(v))
+            pose = Pose(vals[0], vals[1], vals[2], frame)
+        if self.r.dispatcher.state == "running":
+            return fail("a mission is running; stop the mission first, then set the initial pose", 409)
+        try:
+            await self.r.set_initial_pose(pose, site=site_name, source="api", localizer_timeout_s=20.0)
+        except StepTimeout as e:
+            return fail(str(e), 504)
+        except StepFailed as e:
+            return fail(str(e), 500)
+        except TaskCanceled:
+            return fail("setting the initial pose was canceled", 500)
+        out: dict[str, Any] = {"ok": True, "x": pose.x, "y": pose.y, "yaw_deg": pose.yaw_deg}
+        if site_name:
+            out["site"] = site_name
+        return _json(out)
 
     async def get_connectors(self, request: web.Request) -> web.Response:
         return _json(self.r.connector_status())

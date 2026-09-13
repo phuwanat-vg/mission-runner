@@ -139,7 +139,20 @@ class NavBackend(ABC):
     async def wait_active(self, timeout_s: float | None) -> None: ...
 
     @abstractmethod
-    async def set_initial_pose(self, pose: Pose) -> None: ...
+    async def set_initial_pose(self, pose: Pose, *, localizer_timeout_s: float = 30.0, cancellable: bool = True) -> None:
+        """Give the localizer this pose and return once it took it.
+
+        ``localizer_timeout_s`` bounds the wait for the localizer node to be
+        active. ``cancellable=False`` (start-up and HTTP callers) ignores
+        :meth:`cancel`, which belongs to the running mission."""
+
+    async def is_localized(self, grace_s: float = 0.0) -> bool:
+        """True when the robot's pose in the map is known (map -> robot TF),
+        checking for up to ``grace_s`` seconds."""
+        return False
+
+    async def wait_localizer(self, timeout_s: float) -> None:  # noqa: B027 - optional hook
+        """Wait until the localizer (AMCL) is active; raise StepTimeout after ``timeout_s``."""
 
     @abstractmethod
     async def go_to_pose(self, pose: Pose, behavior_tree: str, on_feedback: FeedbackCb) -> dict[str, Any]: ...

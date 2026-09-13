@@ -457,7 +457,14 @@ class Interpreter:
             await self._nav(b.wait_active(step.timeout_s or float(p.get("timeout_s") or 0) or None))
             return None
         if t == "nav.set_initial_pose":
-            await self._nav(b.set_initial_pose(self._resolve_pose(p.get("pose"), ctx, scope)))
+            pose = self._resolve_pose(p.get("pose"), ctx, scope)
+            setter = getattr(s, "set_initial_pose", None)  # the runner logs and emits robot.initial_pose
+            if setter is None:
+                await self._nav(b.set_initial_pose(pose))
+            else:
+                raw = resolve(p.get("pose"), scope)
+                site = raw if isinstance(raw, str) else raw.get("site") if isinstance(raw, dict) else None
+                await self._nav(setter(pose, site=str(site) if site else None, source="step", cancellable=True))
             return None
         if t == "nav.go_to_pose":
             pose = self._resolve_pose(p.get("pose"), ctx, scope)

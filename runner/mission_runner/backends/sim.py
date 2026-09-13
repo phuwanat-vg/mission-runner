@@ -54,6 +54,8 @@ class SimBackend(NavBackend):
         self.blocked: bool = False
         #: Total simulated meters driven (for tests).
         self.odometer: float = 0.0
+        #: Whether an initial pose was given (the start-up Home pose skips when true).
+        self.localized: bool = False
 
     # ----- state ------------------------------------------------------------
 
@@ -150,8 +152,12 @@ class SimBackend(NavBackend):
         if self.lifecycle_state != "active":
             raise StepFailed("Nav2 is not active (simulated lifecycle state: %s)" % self.lifecycle_state)
 
-    async def set_initial_pose(self, pose: Pose) -> None:
+    async def set_initial_pose(self, pose: Pose, *, localizer_timeout_s: float = 30.0, cancellable: bool = True) -> None:
         self.set_pose(pose)
+        self.localized = True
+
+    async def is_localized(self, grace_s: float = 0.0) -> bool:
+        return self.localized
 
     async def go_to_pose(self, pose: Pose, behavior_tree: str, on_feedback: FeedbackCb) -> dict[str, Any]:
         self._begin()

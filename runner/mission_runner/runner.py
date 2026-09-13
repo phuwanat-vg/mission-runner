@@ -178,6 +178,7 @@ class Runner:
             await self.arm_mission(m.mission)
         self._spawn(self._robot_ticker(), "robot-ticker")
         self.events.log("info", f"mission_runner {__version__} ready: backend={self.backend.name} home={self.config.home} http={self.config.http_host}:{self.config.http_port} missions={len(self.store.missions)}")
+        self._spawn(self._initial_pose_on_start(), "initial-pose")
 
     async def stop(self) -> None:
         log.info("stopping")
@@ -514,6 +515,74 @@ class Runner:
             if doc.get("schema") == "mission/1":
                 out.append(doc)
         return out
+
+    # ----- initial pose ------------------------------------------------------------------------
+
+    #: How long the start-up check looks for an existing map -> robot TF before
+    #: deciding the robot is not localized.
+    INITIAL_POSE_GRACE_S = 3.0
+    #: How long the start-up task waits for the localizer (AMCL) to become active.
+    INITIAL_POSE_LOCALIZER_WAIT_S = 600.0
+
+    async def set_initial_pose(self, pose: Any, *, site: str | None = None, source: str = "api", cancellable: bool = False, localizer_timeout_s: float = 30.0) -> dict[str, Any]:
+        """Set the robot's initial pose through the backend (which waits for the
+        localizer to take it), log it and emit ``robot.initial_pose``."""
+        info: dict[str, Any] = {"site": site, "x": pose.x, "y": pose.y, "yaw_deg": pose.yaw_deg, "source": source}
+        where = f"({pose.x:.2f}, {pose.y:.2f}, {pose.yaw_deg:.0f} deg)"
+        if site:
+            where = f"{site} {where}"
+        try:
+            await self.backend.set_initial_pose(pose, localizer_timeout_s=localizer_timeout_s, cancellable=cancellable)
+        except TaskCanceled:
+            self.events.emit("robot.initial_pose", **info, ok=False, message="canceled")
+            raise
+        except Exception as e:
+            self.events.emit("robot.initial_pose", **info, ok=False, message=str(e))
+            self.events.log("warn", f"initial pose: could not set it at {where}: {e}")
+            raise
+        self.events.emit("robot.initial_pose", **info, ok=True)
+        self.events.log("info", f"initial pose set at {where}")
+        return info
+
+    async def _initial_pose_on_start(self) -> None:
+        """Put the robot at the current map's Home site when it is not localized yet.
+
+        Replaces AMCL's ``set_initial_pose``: until a pose is given there is no
+        map -> odom TF and the global costmap cannot come up. A robot that is
+        already localized (only the mission service restarted) is left alone."""
+        from .backends.base import Pose
+
+        mapdef = self.store.sites.map(self._current_map)
+        ip = mapdef.initial_pose if mapdef else None
+        if mapdef is None or ip is None:
+            return
+        if not ip.on_start:
+            self.events.log("info", f"initial pose: on_start is off for map '{mapdef.name}', not setting it")
+            return
+        site = mapdef.sites.get(ip.site)
+        if site is None:
+            self.events.log("warn", f"initial pose: site '{ip.site}' is not in map '{mapdef.name}'")
+            return
+        info = {"site": site.name, "x": site.x, "y": site.y, "yaw_deg": site.yaw_deg, "source": "start"}
+        try:
+            if await self.backend.is_localized(self.INITIAL_POSE_GRACE_S):
+                self.events.log("info", "initial pose: robot already localized, not touching it")
+                return
+            try:
+                await self.backend.wait_localizer(self.INITIAL_POSE_LOCALIZER_WAIT_S)
+            except StepFailed as e:
+                msg = f"gave up waiting for the localizer: {e}"
+                self.events.emit("robot.initial_pose", **info, ok=False, message=msg)
+                self.events.log("warn", f"initial pose: {msg}")
+                return
+            if await self.backend.is_localized(0.0):
+                self.events.log("info", "initial pose: robot got localized while waiting for the localizer, not touching it")
+                return
+            await self.set_initial_pose(Pose(site.x, site.y, site.yaw_deg, mapdef.frame), site=site.name, source="start")
+        except (StepFailed, TaskCanceled):
+            return  # already logged and emitted
+        except Exception:  # noqa: BLE001 - never take the runner down
+            log.exception("initial pose on start failed")
 
     # ----- events → run log --------------------------------------------------------------------
 

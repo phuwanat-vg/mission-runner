@@ -17,6 +17,16 @@
         "properties": {
           "file": { "type": "string", "description": "Absolute path of the map .yaml on the robot (used by nav.change_map)." },
           "frame": { "type": "string", "default": "map" },
+          "initial_pose": {
+            "type": "object",
+            "description": "The site the robot starts at (Home). mission_runner publishes it as the initial pose when it starts and the robot is not localized yet, instead of AMCL's set_initial_pose.",
+            "additionalProperties": false,
+            "required": ["site"],
+            "properties": {
+              "site": { "type": "string", "minLength": 1, "description": "Name of a site in this map." },
+              "on_start": { "type": "boolean", "default": true, "description": "Set the initial pose when the runner starts and the robot is not localized yet." }
+            }
+          },
           "sites": {
             "type": "object",
             "additionalProperties": {

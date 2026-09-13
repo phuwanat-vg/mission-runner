@@ -114,6 +114,30 @@ mission written as "go to Inbound" works in every building that defines
 `Inbound`. Referencing a site that does not exist in the current map is a
 validation error at deploy time and a step failure at run time.
 
+### Initial pose (Home)
+
+A map may name the site the robot starts at:
+
+```jsonc
+"maps": {
+  "demo_room": {
+    "file": "/home/pi/maps/demo_room.yaml",
+    "initial_pose": { "site": "Home", "on_start": true },   // on_start defaults to true
+    "sites": { "Home": { "x": 0, "y": 0, "yaw_deg": 0, "kind": "home" } }
+  }
+}
+```
+
+`site` must be a site of the same map (otherwise saving `sites.json` or
+importing the project fails). With `on_start`, when mission_runner starts on the
+current map and the robot is **not localized** (no map -> `robot_frame` TF within
+about 3 s), it waits for the localizer to become active and sets the initial pose
+at that site, repeating `/initialpose` until AMCL confirms it. A robot that is
+already localized is left alone, so restarting only the mission service never
+resets its pose. `POST /api/robot/initial_pose` and the `nav.set_initial_pose`
+step use the same confirmed method; each emits `robot.initial_pose`. See
+[robot-startup.md](robot-startup.md#home-as-initial-pose).
+
 Waypoint lists (`poses`, `points`, `goals`) accept the same forms; `points`
 additionally accepts `[x, y]` / `[x, y, yaw_deg]` arrays.
 
@@ -142,7 +166,7 @@ These wrap `nav2_simple_commander.BasicNavigator` one to one.
 | Type | Parameters | Notes |
 |---|---|---|
 | `nav.wait_active` | `timeout_s` | `waitUntilNav2Active()` |
-| `nav.set_initial_pose` | `pose` | publishes `/initialpose` |
+| `nav.set_initial_pose` | `pose` | waits for the localizer, publishes `/initialpose` every second until AMCL confirms it (30 s max); once without a localizer |
 | `nav.follow_route` | `to`, `through[]`, `from`, `on_no_route`, `apply_speed_limits`, `behavior_tree` | plans on the map's route graph (one-way and blocked lanes honoured) and sends only on-lane waypoints with `goThroughPoses`; `value` = `{route, legs, length_m, from, to, through, direct}` |
 | `nav.go_to_pose` | `pose`, `behavior_tree` | `goToPose()`; `value` = final feedback |
 | `nav.go_through_poses` | `poses[]`, `behavior_tree` | `goThroughPoses()` |

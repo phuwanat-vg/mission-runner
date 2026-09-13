@@ -86,6 +86,7 @@ class Nav2Backend(NavBackend):
         self._state = RobotState(frame="map")
         self._tf_buffer: Any = None
         self._publishers: dict[tuple[str, str], Any] = {}
+        self._initial_pose_pub: Any = None
         self._map_frame = "map"
         self.cb_group = ReentrantCallbackGroup()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -320,43 +321,144 @@ class Nav2Backend(NavBackend):
 
     # ----- navigation API --------------------------------------------------------------
 
-    async def wait_active(self, timeout_s: float | None) -> None:
+    def _wait_lifecycle(self, names: list[str], timeout_s: float, should_stop: Callable[[], bool]) -> None:
+        """Block (worker thread) until every lifecycle node in ``names`` is ACTIVE."""
         node = self.node
         assert node is not None
         from lifecycle_msgs.srv import GetState
 
+        deadline = time.monotonic() + timeout_s
+        for name in names:
+            client = node.create_client(GetState, f"{name}/get_state", callback_group=self.cb_group)
+            try:
+                while True:
+                    if should_stop():
+                        raise TaskCanceled()
+                    if time.monotonic() > deadline:
+                        raise StepTimeout(f"{name} is not active after {timeout_s:g} s")
+                    if not client.wait_for_service(timeout_sec=1.0):
+                        continue
+                    fut = client.call_async(GetState.Request())
+                    t0 = time.monotonic()
+                    while not fut.done() and time.monotonic() - t0 < 2.0:
+                        time.sleep(0.05)
+                    if fut.done() and fut.result() is not None and fut.result().current_state.id == 3:  # ACTIVE
+                        break
+                    time.sleep(0.5)
+            finally:
+                node.destroy_client(client)
+
+    def _localizer_nodes(self) -> list[str]:
+        """Lifecycle nodes to wait for before localization ("" or robot_localization: none)."""
+        return [self.localizer] if self.localizer and self.localizer != "robot_localization" else []
+
+    async def wait_active(self, timeout_s: float | None) -> None:
         names = list(self.wait_nodes)
-        if self.localizer and self.localizer not in names and self.localizer != "robot_localization":
-            names.append(self.localizer)
-        deadline = time.monotonic() + (timeout_s or 3600.0)
-
-        def work() -> None:
-            for name in names:
-                client = node.create_client(GetState, f"{name}/get_state", callback_group=self.cb_group)
-                try:
-                    while True:
-                        if self._stop.is_set() or self._cancel_requested.is_set():
-                            raise TaskCanceled()
-                        if time.monotonic() > deadline:
-                            raise StepTimeout(f"{name} is not active after {timeout_s:g} s")
-                        if not client.wait_for_service(timeout_sec=1.0):
-                            continue
-                        fut = client.call_async(GetState.Request())
-                        t0 = time.monotonic()
-                        while not fut.done() and time.monotonic() - t0 < 2.0:
-                            time.sleep(0.05)
-                        if fut.done() and fut.result() is not None and fut.result().current_state.id == 3:  # ACTIVE
-                            break
-                        time.sleep(0.5)
-                finally:
-                    node.destroy_client(client)
-
+        for n in self._localizer_nodes():
+            if n not in names:
+                names.append(n)
         self._cancel_requested.clear()
-        await asyncio.to_thread(work)
+        await asyncio.to_thread(self._wait_lifecycle, names, timeout_s or 3600.0, lambda: self._stop.is_set() or self._cancel_requested.is_set())
         self._state.nav_active = True
 
-    async def set_initial_pose(self, pose: Pose) -> None:
-        await self._blocking(lambda: self.nav.setInitialPose(self._pose_msg(pose)))  # type: ignore[union-attr]
+    # ----- localization ----------------------------------------------------------------
+
+    def _tf_localized(self) -> bool:
+        if self._tf_buffer is None:
+            return False
+        try:
+            self._tf_buffer.lookup_transform(self._map_frame, self.robot_frame, rclpy.time.Time())
+        except Exception:  # noqa: BLE001 - no map -> robot transform (yet)
+            return False
+        return True
+
+    async def is_localized(self, grace_s: float = 0.0) -> bool:
+        loop = asyncio.get_running_loop()
+        end = loop.time() + grace_s
+        while True:
+            if self._tf_localized():
+                return True
+            if loop.time() >= end:
+                return False
+            await asyncio.sleep(0.2)
+
+    async def wait_localizer(self, timeout_s: float) -> None:
+        names = self._localizer_nodes()
+        if names:
+            await asyncio.to_thread(self._wait_lifecycle, names, timeout_s, self._stop.is_set)
+
+    async def set_initial_pose(self, pose: Pose, *, localizer_timeout_s: float = 30.0, cancellable: bool = True) -> None:
+        """Wait for the localizer, then publish ``/initialpose`` every second until
+        AMCL answers on ``/amcl_pose`` or the map -> robot TF appears (30 s max).
+        Without a localizer (FAST-LIO2, ...) the pose is published once."""
+        from geometry_msgs.msg import PoseWithCovarianceStamped
+
+        from ..localize import INITIAL_POSE_COVARIANCE, confirm_initial_pose
+
+        node = self.node
+        assert node is not None
+        names = self._localizer_nodes()
+        aborted = threading.Event()
+        if cancellable:
+            self._cancel_requested.clear()
+
+        def should_stop() -> bool:
+            return self._stop.is_set() or aborted.is_set() or (cancellable and self._cancel_requested.is_set())
+
+        if self._initial_pose_pub is None:
+            self._initial_pose_pub = node.create_publisher(PoseWithCovarianceStamped, "initialpose", QoSProfile(depth=10))
+        pub = self._initial_pose_pub
+
+        def publish() -> None:
+            msg = PoseWithCovarianceStamped()
+            msg.header.frame_id = pose.frame or self._map_frame
+            msg.header.stamp = node.get_clock().now().to_msg()
+            msg.pose.pose.position.x = float(pose.x)
+            msg.pose.pose.position.y = float(pose.y)
+            yaw = math.radians(pose.yaw_deg)
+            msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
+            msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
+            cov = [0.0] * 36
+            cov[0], cov[7], cov[35] = INITIAL_POSE_COVARIANCE
+            msg.pose.covariance = cov
+            pub.publish(msg)
+
+        def work() -> None:
+            if names:
+                self._wait_lifecycle(names, localizer_timeout_s, should_stop)
+            else:
+                # One message only: give discovery a moment so it is not lost.
+                t0 = time.monotonic()
+                while pub.get_subscription_count() == 0 and time.monotonic() - t0 < 5.0 and not should_stop():
+                    time.sleep(0.1)
+                publish()
+                log.info("initial pose published once on /initialpose (no localizer configured)")
+                return
+            last_amcl = [0.0]
+
+            def on_amcl(_msg: Any) -> None:
+                last_amcl[0] = time.monotonic()
+
+            # Volatile on purpose: AMCL latches amcl_pose, and an old latched pose is no confirmation.
+            sub = node.create_subscription(PoseWithCovarianceStamped, "amcl_pose", on_amcl, QoSProfile(depth=5), callback_group=self.cb_group)
+            tf_before = self._tf_localized()
+            try:
+                n = confirm_initial_pose(
+                    publish,
+                    lambda t_first: last_amcl[0] > t_first or (not tf_before and self._tf_localized()),
+                    should_stop=should_stop,
+                )
+            finally:
+                node.destroy_subscription(sub)
+            log.info("initial pose confirmed by %s after %d message(s)", self.localizer, n)
+
+        try:
+            await asyncio.to_thread(work)
+        except asyncio.CancelledError:
+            aborted.set()
+            if cancellable:
+                self._cancel_requested.set()
+            raise
 
     async def go_to_pose(self, pose: Pose, behavior_tree: str, on_feedback: FeedbackCb) -> dict[str, Any]:
         msg = self._pose_msg(pose)

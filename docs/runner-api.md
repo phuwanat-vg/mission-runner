@@ -95,6 +95,7 @@ draws a plain room around that map's sites instead and reports
 | `GET` | `/api/project?name=` | the robot's sites and missions as a `project/1` document (see [`mission-builder-v2.md`](mission-builder-v2.md)) |
 | `PUT` | `/api/project?replace=false` | import a `project/1` document. Everything is validated first and nothing is written if any mission is invalid (`400 {ok:false, errors}`, paths prefixed `missions/<name>`). Saves sites and missions and re-arms triggers; `replace=true` also deletes robot missions not in the project, except a running one. `200 {ok, saved, deleted, kept, warnings}` |
 | `GET` | `/api/robot/pose` | `{x, y, yaw_deg, frame}` (for "capture site from robot") |
+| `POST` | `/api/robot/initial_pose` | `{"site": "Home"}` (a site of the current map) or `{"x", "y", "yaw_deg"?}` (map frame). Waits for the localizer (`nav2.localizer`, up to 20 s), publishes `/initialpose` every second until AMCL answers on `/amcl_pose` or the map -> robot TF appears (30 s max; with `localizer: ""` it publishes once) → `200 {ok: true, site?, x, y, yaw_deg}`. `400` bad body or unknown site, `409` while a mission is running (stop the mission first), `504` localizer not active or pose not confirmed in time, `500` other failure; errors are `{ok: false, error, message}`. Emits `robot.initial_pose` |
 | `GET` | `/api/connectors` | `{name: {type, connected, available, reason, config, configured}}` with secrets redacted. Names referenced by a deployed mission but absent from `connectors.yaml` are listed with `configured: false`, so a mission can be written before the broker or the PLC exists. |
 | `GET` | `/api/capabilities` | `{backend, steps: {type: {available, reason}}, triggers: {...}, connectors: [...], ros_distro}` |
 | `GET` | `/api/schema` | mission JSON schema |
@@ -168,6 +169,7 @@ then one JSON object per event:
 | `prompt` / `prompt.answered` | `prompt`, `answer` |
 | `request` / `request.answered` | a `ros.request` step published `request` on `request_topic` / the answer `{id, answer, by}` arrived |
 | `robot` | `x, y, yaw_deg, frame, battery` (≤ 2 Hz) |
+| `robot.initial_pose` | `site` (`null` for coordinates), `x, y, yaw_deg, source: "start" \| "api" \| "step", ok, message?`: an initial pose was set, or failed with `message` |
 | `missions.changed` | `names: []` |
 | `sites.changed` | |
 | `autostart.changed` | `name`: an autostart service was added, changed, started, stopped or removed |

@@ -23,6 +23,28 @@ is safe even when Nav2 takes a minute. A user may also put everything into one
 launch file (their robot launch including `bringup.launch.py`); then there is only
 one service.
 
+### Home as initial pose
+
+AMCL without `set_initial_pose` publishes no map -> odom transform until someone
+clicks *2D Pose Estimate*. Meanwhile the global costmap (planner_server) waits
+for that transform, times out and Nav2's bring-up aborts, which shows up as "the
+global costmap sometimes does not come up". Instead of hard-coding a pose in
+AMCL's parameters, pick the Home point in Mission Builder: the map gets
+`"initial_pose": {"site": "Home", "on_start": true}` in `sites.json`
+([mission-format.md](mission-format.md#initial-pose-home)). When the `mission`
+service starts and the robot is not localized (no map -> `robot_frame` TF within
+about 3 s), mission_runner waits for `nav2.localizer` (AMCL) to become active (up
+to 10 minutes, in the background; startup is not blocked), then publishes
+`/initialpose` at Home every second until AMCL answers on `/amcl_pose` or the TF
+appears (30 s max). Restarting only the `mission` service while the robot is
+elsewhere does not reset its pose: it is already localized, and the log says
+`initial pose: robot already localized, not touching it`. Every attempt is logged
+and emitted as `robot.initial_pose`; `POST /api/robot/initial_pose` sets it by hand.
+
+Keep Nav2's global costmap `initial_transform_timeout` generous (for example
+60 s or more): the pose can only be given once AMCL is active, and AMCL activates
+in the same bring-up the costmap is waiting in.
+
 ## 2. `bringup.launch.py`
 
 ```bash

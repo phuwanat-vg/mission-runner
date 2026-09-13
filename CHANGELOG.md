@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Home as initial pose**: `sites/1` maps take
+  `"initial_pose": {"site": "Home", "on_start": true}` (the site must exist in that
+  map). On start, when the robot is not localized (no map -> robot TF within ~3 s),
+  mission_runner waits for the localizer (up to 10 min, in the background) and sets
+  the initial pose at that site; a robot that is already localized is left alone.
+  Replaces AMCL `set_initial_pose` and fixes the global costmap timing out at
+  bring-up for want of map -> odom (docs/robot-startup.md)
+  - nav2 `set_initial_pose` (also the `nav.set_initial_pose` step) waits for the
+    localizer lifecycle node, then republishes `/initialpose` every second until
+    `/amcl_pose` answers or the map -> robot TF appears, 30 s max; once with
+    `localizer: ""`
+  - `POST /api/robot/initial_pose` `{site}` or `{x, y, yaw_deg}` (400 / 409 while
+    a mission runs / 504), event `robot.initial_pose {site, x, y, yaw_deg, source, ok, message?}`
+
 - **Robot startup** (docs/robot-startup.md): the robot side of Mission Builder's
   *Robot startup* tool
   - `bringup.launch.py`: mission_runner + foxglove_bridge (`include_hidden`) +

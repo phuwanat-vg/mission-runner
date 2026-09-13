@@ -35,6 +35,7 @@ __all__ = [
     "Site",
     "Zone",
     "Edge",
+    "InitialPose",
     "RouteLeg",
     "MapDef",
     "SitesBook",
@@ -394,6 +395,17 @@ class RouteLeg:
         return {"from": self.frm, "to": self.to, "length_m": round(self.length_m, 3), "speed_mps": self.speed_mps}
 
 
+@dataclass(slots=True)
+class InitialPose:
+    """The site a map's robot starts at; published as the initial pose on start."""
+
+    site: str
+    on_start: bool = True
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"site": self.site, "on_start": self.on_start}
+
+
 @dataclass
 class MapDef:
     name: str
@@ -402,6 +414,7 @@ class MapDef:
     sites: dict[str, Site] = field(default_factory=dict)
     zones: dict[str, Zone] = field(default_factory=dict)
     edges: list[Edge] = field(default_factory=list)
+    initial_pose: InitialPose | None = None
 
     def zones_at(self, x: float, y: float) -> list[Zone]:
         return [z for z in self.zones.values() if z.contains(x, y)]
@@ -535,7 +548,16 @@ class SitesBook:
                 )
                 for e in (m.get("edges") or [])
             ]
-            maps[mname] = MapDef(mname, str(m.get("file", "")), str(m.get("frame", "map")), sites, zones, edges)
+            ip = m.get("initial_pose")
+            initial = InitialPose(str(ip["site"]), bool(ip.get("on_start", True))) if isinstance(ip, dict) else None
+            maps[mname] = MapDef(mname, str(m.get("file", "")), str(m.get("frame", "map")), sites, zones, edges, initial)
+        problems = [
+            Finding("error", ["maps", mname, "initial_pose", "site"], f"initial pose site '{md.initial_pose.site}' does not exist in map '{mname}'")
+            for mname, md in maps.items()
+            if md.initial_pose is not None and md.initial_pose.site not in md.sites
+        ]
+        if problems:
+            raise MissionValidationError(problems)
         return cls(maps, doc.get("default_map"))
 
     def to_dict(self) -> dict[str, Any]:
@@ -546,6 +568,7 @@ class SitesBook:
                 m.name: {
                     "file": m.file,
                     "frame": m.frame,
+                    **({"initial_pose": m.initial_pose.as_dict()} if m.initial_pose else {}),
                     "sites": {s.name: s.as_dict() for s in m.sites.values()},
                     **({"edges": [e.as_dict() for e in m.edges]} if m.edges else {}),
                     **({"zones": {z.name: z.as_dict() for z in m.zones.values()}} if m.zones else {}),

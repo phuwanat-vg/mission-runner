@@ -82,6 +82,10 @@ robot_frame: base_link         # the frame that TF says the robot is at
 `nav.wait_active` waits for those lifecycle nodes to report ACTIVE. If you do
 not run AMCL, set `localizer: ""` or the first step of every mission hangs.
 
+With AMCL, pick a Home point as the map's initial pose instead of AMCL's
+`set_initial_pose`; mission_runner then localizes the robot there at boot (see
+[robot-startup.md](robot-startup.md#home-as-initial-pose)).
+
 Connectors (MQTT, Modbus) are optional; skip `connectors.yaml` for the first
 run. A mission that references a connector you have not configured still loads
 — the action just fails when it runs.
