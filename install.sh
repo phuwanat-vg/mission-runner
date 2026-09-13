@@ -11,7 +11,7 @@
 #   --ws DIR          colcon workspace (default ~/ros2_ws)
 #   --source DIR      copy the code from this local directory instead of GitHub
 #   --branch NAME     git branch (default main)
-#   --domain N        ROS_DOMAIN_ID for the mission service
+#   --domain N        ROS_DOMAIN_ID for the mission service (default: $ROS_DOMAIN_ID of this shell)
 #   --project FILE    project file (.mproj) imported when the mission service starts
 #   --no-autostart    do not create or restart the `mission` service
 #   --no-sudo         skip everything that needs root (rosdep install, linger)
@@ -149,6 +149,16 @@ main() {
       say "restarting the mission service (existing arguments kept)"
       mission_runner autostart add mission --workspace "$WS/install/setup.bash" "${ARGS[@]}" --start </dev/null
     else
+      # A service does not read ~/.bashrc: carry this shell's ROS setup over, or the bridge
+      # and the runner end up in another DDS domain than Nav2 and see none of its topics.
+      if [ -z "$DOMAIN" ] && [ -n "${ROS_DOMAIN_ID:-}" ]; then
+        say "using ROS_DOMAIN_ID=$ROS_DOMAIN_ID from this shell"
+        ARGS+=(--domain "$ROS_DOMAIN_ID")
+      fi
+      if [ -n "${RMW_IMPLEMENTATION:-}" ]; then
+        say "using RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION from this shell"
+        ARGS+=(--rmw "$RMW_IMPLEMENTATION")
+      fi
       say "creating the mission service (mission_runner + foxglove_bridge)"
       mission_runner autostart add mission --package mission_runner --launch bringup.launch.py --description "Mission layer" "${ARGS[@]}" --start </dev/null
     fi
