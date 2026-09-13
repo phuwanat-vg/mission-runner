@@ -1,7 +1,7 @@
 import os
 from glob import glob
 
-from setuptools import find_packages, setup
+from setuptools import find_namespace_packages, setup
 
 package_name = "mission_runner"
 here = os.path.dirname(os.path.abspath(__file__))
@@ -22,7 +22,9 @@ def webui_files():
 setup(
     name=package_name,
     version="0.1.0",
-    packages=find_packages(exclude=["test", "test.*"]),
+    # namespace discovery: schema/ and webui/ hold only data files, and setuptools warns
+    # "Package would be ignored" when they are not listed as packages
+    packages=find_namespace_packages(include=[package_name, package_name + ".*"], exclude=["*.__pycache__"]),
     package_data={package_name: ["schema/*.json", *webui_files()]},
     include_package_data=True,
     data_files=[
