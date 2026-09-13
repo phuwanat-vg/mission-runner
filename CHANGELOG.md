@@ -15,6 +15,10 @@
   writes nothing if any mission is invalid, then re-arms triggers
   (`replace=true` also removes missions not in the project). Offline, with no
   network or GUI: `mission_runner project import|export <file>`
+- **Topics per station**: a site may carry `request_topic` / `answer_topic`.
+  A `ros.request` asked at that station (its `station`, or the last route
+  target) uses them unless the step names its own, so each station's screen or
+  node only receives its own questions
 - Example `inspect_route`: a round on the lanes with a request at each stop
 - Fix: `nav.follow_route` without `from` starts at the site nearest the robot
   even when no lane leads away from it. It used to skip such a site (e.g. the

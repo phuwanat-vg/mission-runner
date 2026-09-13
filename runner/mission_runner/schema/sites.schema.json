@@ -30,6 +30,8 @@
                 "kind": { "type": "string", "enum": ["station", "dock", "waypoint", "home"], "default": "station" },
                 "dock_id": { "type": "string" },
                 "dock_type": { "type": "string" },
+                "request_topic": { "type": "string", "pattern": "^/", "description": "ros.request steps asked at this site publish here, unless the step names its own topic." },
+                "answer_topic": { "type": "string", "pattern": "^/", "description": "ros.request steps asked at this site wait for answers here, unless the step names its own topic." },
                 "notes": { "type": "string" }
               }
             }

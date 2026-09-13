@@ -102,8 +102,8 @@ be one.
   "default": "OK",                    // used on timeout when on_timeout is "default"
   "timeout_s": 120,
   "on_timeout": "default",            // "default" | "fail"
-  "request_topic": "/iviz/request",   // optional; runner default otherwise
-  "answer_topic": "/iviz/answer",     // optional; runner default otherwise
+  "request_topic": "/iviz/request",   // optional; else the station's topic, else the runner default
+  "answer_topic": "/iviz/answer",     // optional; else the station's topic, else the runner default
   "station": "Conveyor1",             // optional; defaults to the site of the last Follow route
   "data": { "order": "$order_id" },   // optional extra JSON for the answering node
   "out": "check" }
@@ -135,6 +135,26 @@ Answer message (expected on `answer_topic`):
   step fails with a timeout, and `on_fail` applies as for any step.
 - Runner defaults for the topics live in `runner.yaml`:
   `request_topic: /iviz/request`, `answer_topic: /iviz/answer`.
+
+#### Topics per station
+
+When each station has its own screen or node, give the point its own topics so
+it only receives its own questions:
+
+```json
+"Conveyor1": { "x": 3.0, "y": 0.0, "kind": "station",
+               "request_topic": "/station/conveyor1/request",
+               "answer_topic": "/station/conveyor1/answer" }
+```
+
+Each topic is chosen on its own, first match wins: the step's
+`request_topic` / `answer_topic` → the topics on the site named by the step's
+`station` (or, without one, the last Follow route's destination) → the runner
+default. In Mission Builder the point's panel has **Questions at this point**
+with the two fields; the request form leaves its topic fields empty and shows
+which topic applies and where it comes from. On the station, set iViz's
+Dashboard **Requests** / **Answers** topics to that pair, or subscribe your node
+to them.
 
 Writing a new answering node is the mirror of iViz's asking example: subscribe
 `request_topic`, publish `{"id", "answer"}` on `answer_topic`.

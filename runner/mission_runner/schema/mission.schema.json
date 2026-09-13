@@ -252,8 +252,8 @@
               "options": { "type": "array", "items": { "type": "string" }, "description": "Empty or absent: any answer is accepted." },
               "default": { "type": "string", "description": "Answer used on timeout when on_timeout is 'default'." },
               "on_timeout": { "type": "string", "enum": ["default", "fail"], "default": "default" },
-              "request_topic": { "type": "string", "pattern": "^[/$]", "description": "std_msgs/String topic the JSON request is published on. Runner default: /iviz/request." },
-              "answer_topic": { "type": "string", "pattern": "^[/$]", "description": "std_msgs/String topic answers arrive on. Runner default: /iviz/answer." },
+              "request_topic": { "type": "string", "pattern": "^[/$]", "description": "std_msgs/String topic the JSON request is published on. Else the station site's request_topic, else the runner default /iviz/request." },
+              "answer_topic": { "type": "string", "pattern": "^[/$]", "description": "std_msgs/String topic answers arrive on. Else the station site's answer_topic, else the runner default /iviz/answer." },
               "station": { "type": "string", "description": "Where the robot is. Defaults to the site of the last nav.follow_route." },
               "data": { "type": "object", "description": "Extra JSON passed to the answering node; values may use expressions." }
             }

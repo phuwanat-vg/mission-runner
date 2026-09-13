@@ -738,14 +738,19 @@ class Interpreter:
         s = self.s
         p = step.params
         cfg = getattr(s, "config", None)
-        request_topic = str(resolve(p.get("request_topic"), scope) or getattr(cfg, "request_topic", "/iviz/request"))
-        answer_topic = str(resolve(p.get("answer_topic"), scope) or getattr(cfg, "answer_topic", "/iviz/answer"))
+        station = resolve(p.get("station"), scope) if p.get("station") else ctx.last_site
+        # Topics, each on its own: the step's, then the station site's, then the runner default.
+        mapdef = s.store.sites.map(s.current_map) if station else None
+        site = mapdef.sites.get(str(station)) if mapdef is not None else None
+        request_topic = str(
+            resolve(p.get("request_topic"), scope) or (site.request_topic if site else "") or getattr(cfg, "request_topic", "/iviz/request")
+        )
+        answer_topic = str(resolve(p.get("answer_topic"), scope) or (site.answer_topic if site else "") or getattr(cfg, "answer_topic", "/iviz/answer"))
         options = [str(o) for o in (resolve(p.get("options"), scope) or [])]
         default = resolve(p.get("default"), scope)
         default = None if default is None else str(default)
         timeout_s = step.timeout_s or (float(p["timeout_s"]) if p.get("timeout_s") else None)
         on_timeout = str(p.get("on_timeout", "default"))
-        station = resolve(p.get("station"), scope) if p.get("station") else ctx.last_site
         rid = uuid.uuid4().hex[:8]
         body: dict[str, Any] = {
             "id": rid,

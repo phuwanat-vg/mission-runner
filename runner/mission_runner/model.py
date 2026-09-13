@@ -287,6 +287,9 @@ class Site:
     dock_id: str | None = None
     dock_type: str | None = None
     notes: str = ""
+    #: topics for ros.request steps asked at this site ("" = the runner default)
+    request_topic: str = ""
+    answer_topic: str = ""
 
     def as_pose(self, frame: str = "map") -> dict[str, Any]:
         return {"x": self.x, "y": self.y, "yaw_deg": self.yaw_deg, "frame": frame}
@@ -297,6 +300,10 @@ class Site:
             d["dock_id"] = self.dock_id
         if self.dock_type:
             d["dock_type"] = self.dock_type
+        if self.request_topic:
+            d["request_topic"] = self.request_topic
+        if self.answer_topic:
+            d["answer_topic"] = self.answer_topic
         if self.notes:
             d["notes"] = self.notes
         return d
@@ -500,6 +507,8 @@ class SitesBook:
                     s.get("dock_id"),
                     s.get("dock_type"),
                     str(s.get("notes", "")),
+                    str(s.get("request_topic", "")),
+                    str(s.get("answer_topic", "")),
                 )
                 for sname, s in (m.get("sites") or {}).items()
             }

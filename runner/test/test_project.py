@@ -77,6 +77,37 @@ async def test_ros_request_custom_topics_and_timeout_fail(harness):
     assert run.status == RunStatus.FAILED and "no answer on /cell/ans" in run.error
 
 
+async def test_ros_request_uses_the_station_sites_topics(harness):
+    m = harness.r.store.sites.map("demo_room")
+    m.sites["A"].request_topic, m.sites["A"].answer_topic = "/station/a/request", "/station/a/answer"
+    m.sites["B"].request_topic = "/station/b/request"  # answer falls back to the default
+    doc = mission(
+        "ask_stations",
+        [
+            {"id": "go", "type": "nav.follow_route", "to": "A"},
+            {"id": "qa", "type": "ros.request", "text": "At A?", "timeout_s": 10},
+            {"id": "qb", "type": "ros.request", "text": "At B?", "station": "B", "timeout_s": 10},
+            {"id": "qo", "type": "ros.request", "text": "Override", "station": "A", "request_topic": "/own/req", "timeout_s": 10},
+        ],
+    )
+    await harness.r.deploy_mission(doc)
+    run = await harness.run("ask_stations")
+    body = await _published_request(harness, "/station/a/request")
+    assert body["station"] == "A"
+    harness.r.sim_topics.push("/iviz/answer", {"data": json.dumps({"id": body["id"], "answer": "OK"})})  # wrong topic: ignored
+    await asyncio.sleep(0.1)
+    assert run.status == RunStatus.RUNNING
+    harness.r.sim_topics.push("/station/a/answer", {"data": json.dumps({"id": body["id"], "answer": "OK"})})
+    body = await _published_request(harness, "/station/b/request")
+    assert body["station"] == "B"
+    harness.r.sim_topics.push("/iviz/answer", {"data": json.dumps({"id": body["id"], "answer": "OK"})})
+    body = await _published_request(harness, "/own/req")
+    harness.r.sim_topics.push("/station/a/answer", {"data": json.dumps({"id": body["id"], "answer": "OK"})})
+    assert await harness.wait_idle(30)
+    assert run.status == RunStatus.SUCCEEDED, run.error
+    assert m.sites["B"].as_dict()["request_topic"] == "/station/b/request" and "answer_topic" not in m.sites["B"].as_dict()
+
+
 async def test_follow_route_through(harness):
     doc = mission("thru", [{"id": "go", "type": "nav.follow_route", "through": ["C"], "to": "Rack3"}])
     await harness.r.deploy_mission(doc)
