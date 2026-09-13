@@ -32,6 +32,9 @@ can be exported as a plain Python script.
 | **Mission Builder** ([phuwanat-vg/mission-builder](https://github.com/phuwanat-vg/mission-builder)) | The Windows desktop application for building missions: the mission tree, the map and the route graph, maps, deploy, run and export. See [`docs/mission-builder-app.md`](docs/mission-builder-app.md). |
 | [`docs/iviz-route-mode.md`](docs/iviz-route-mode.md) | **Route mode in iViz** (parked: the button is greyed out in iViz 0.1.0): drawing the route graph, stops and their actions, over one foxglove_bridge connection. |
 | [`docs/first-run-on-robot.md`](docs/first-run-on-robot.md) | **Checklist for the first run on real hardware**: install, start order, what to check at each step, what usually goes wrong. |
+| [`install.sh`](install.sh) | One-command install and update on a ROS 2 Jazzy robot. |
+| [`docs/robot-startup.md`](docs/robot-startup.md) | `bringup.launch.py`, the `station_answer` node and autostart services (start the robot and the mission layer at boot). |
+| [`docs/example-nodes.md`](docs/example-nodes.md) | Example ROS 2 nodes to copy: start a mission, answer its requests, trigger it from a topic, watch and stop runs. |
 | [`docs/editor-spec.md`](docs/editor-spec.md) | Web editor design and behavior (legacy). |
 
 ## Quick start without a robot (any OS)
@@ -53,23 +56,54 @@ simulated robot drive. The sim mode also exposes
 ## Install on the robot
 
 Doing this for the first time? Follow
-[`docs/first-run-on-robot.md`](docs/first-run-on-robot.md) instead — same steps,
+[`docs/first-run-on-robot.md`](docs/first-run-on-robot.md) — same steps,
 plus what to verify at each stage and what usually goes wrong.
 
+**One command** (Ubuntu 24.04 + ROS 2 Jazzy; run it again to update):
+
 ```bash
-sudo apt install ros-$ROS_DISTRO-nav2-simple-commander python3-aiohttp python3-jsonschema python3-yaml python3-paho-mqtt python3-croniter
-# optional: pip install pymodbus gpiozero
+curl -fsSL https://raw.githubusercontent.com/phuwanat-vg/mission-runner/main/install.sh | bash
+# options: ... | bash -s -- --ws ~/robot_ws --domain 7 --project ~/line2.mproj --no-autostart
+```
+
+It clones into `~/ros2_ws/src/mission-runner` (or pulls), runs `rosdep install`,
+builds `mission_msgs` and `mission_runner`, turns on linger, creates the
+`mission` autostart service and prints the `ws://<ip>:8765` address to type
+into Mission Builder. sudo is asked once.
+
+**By hand:**
+
+```bash
 cd ~/ros2_ws/src && git clone https://github.com/phuwanat-vg/mission-runner.git
-cd ~/ros2_ws && colcon build --packages-select mission_msgs mission_runner && source install/setup.bash
-ros2 launch mission_runner mission_runner.launch.py
+cd ~/ros2_ws && rosdep install --from-paths src -y --ignore-src     # apt packages, incl. foxglove_bridge
+colcon build --packages-select mission_msgs mission_runner && source install/setup.bash
+# optional: pip install pymodbus; sudo apt install python3-gpiozero
+ros2 launch mission_runner bringup.launch.py        # mission_runner + foxglove_bridge (+ station answer nodes)
+```
+
+`bringup.launch.py` takes `project:=FILE` (import a project before starting),
+`bridge:=true`, `stations:=FILE` (a `station_answer` node per station),
+`sim:=`, `home:=`, `port:=`; see [`docs/robot-startup.md`](docs/robot-startup.md).
+`mission_runner.launch.py` still starts the runner alone.
+
+**Start at boot**, as systemd user services (no root; Mission Builder has the same under **Robot startup**):
+
+```bash
+sudo loginctl enable-linger $USER      # once: user services start at boot without a login
+mission_runner autostart add robot --launch ~/robot_ws/src/my_robot/launch/robot.launch.py   # your drivers + Nav2
+mission_runner autostart add mission --package mission_runner --launch bringup.launch.py --after robot --start
+mission_runner autostart list          # also start|stop|restart|log|remove NAME
 ```
 
 Then:
 
 1. Copy `runner/config/runner.example.yaml` to `~/.mission/runner.yaml` and set `nav2.localizer` (`amcl`, or `""` with FAST-LIO2).
 2. Copy `runner/config/connectors.example.yaml` to `~/.mission/connectors.yaml` for MQTT / Modbus; put secrets in `/etc/mission_runner.env`.
-3. Install `runner/deploy/mission_runner.service` so the runner starts at boot and restarts on failure.
-4. Open `http://<robot>:8080` from any browser on the LAN, teach sites with **Capture from robot**, build a mission, **Deploy**.
+3. Open `http://<robot>:8080` from any browser on the LAN, or connect Mission Builder to `ws://<robot>:8765`, build a mission, **Deploy**.
+
+Writing your own nodes that start missions, answer their questions or watch
+them? Copy one of the [example nodes](docs/example-nodes.md)
+(`ros2 run mission_runner example_start_mission`, ...).
 
 Build the editor once (`cd editor && npm run build`) before `colcon build` so
 the web page is bundled; without it the robot serves a minimal status page
@@ -96,7 +130,7 @@ the web page is bundled; without it the robot serves a minimal status page
 ## Development
 
 ```bash
-cd runner && python -m pytest          # 74 tests, sim backend, ~1.5 min
+cd runner && python -m pytest          # 119 tests, sim backend, ~1.5 min
 cd editor && npm test && npm run build
 ```
 

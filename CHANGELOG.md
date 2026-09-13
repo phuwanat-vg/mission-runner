@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **Robot startup** (docs/robot-startup.md): the robot side of Mission Builder's
+  *Robot startup* tool
+  - `bringup.launch.py`: mission_runner + foxglove_bridge (`include_hidden`) +
+    one `station_answer` node per entry of a stations YAML; `project:=` imports a
+    project before the runner starts
+  - `mission_runner run --project FILE [--project-replace]`: an invalid project
+    prints the errors, writes nothing and the runner does not start
+  - `station_answer` node: answers `ros.request` for one station, by a fixed
+    answer (`auto`), a Bool/String/Int32/Float32 topic, a `std_srvs/Trigger`
+    service or Raspberry Pi buttons (`gpio`, needs gpiozero)
+  - **Autostart services**: systemd user units that launch a robot launch file
+    or a package launch file at boot, with ordering (`after`), ROS_DOMAIN_ID and
+    RMW. `GET/PUT/DELETE /api/autostart...` (browse the robot's files for launch
+    files, start/stop/restart, journal log, linger), event `autostart.changed`,
+    and offline `mission_runner autostart list|add|start|stop|restart|log|remove|linger`.
+    Every name, path, argument and value is validated and shell-quoted;
+    `autostart.enabled: false` in `runner.yaml` makes the API read-only
+- `install.sh`: one command installs or updates the runner on a Jazzy robot
+  (clone/pull, rosdep, build, linger, `mission` autostart service)
+- Example nodes to copy: `example_start_mission`, `example_answer_requests`,
+  `example_ask_robot`, `example_watch_missions` (docs/example-nodes.md)
+- Fix: `colcon build` failed on current setuptools ("'data_files' must be
+  relative") because the example missions were listed with absolute paths
+
 - **`ros.request` step**: publish a JSON request and wait for the answer with the
   same id over two `std_msgs/String` topics (default `/iviz/request` and
   `/iviz/answer`, set in `runner.yaml` or per step). It is the exchange iViz's

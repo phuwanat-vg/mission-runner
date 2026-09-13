@@ -10,28 +10,53 @@ hand on the hardware e-stop. The very first `nav.follow_route` will drive.
 
 ---
 
+## 0. The short way: one command
+
+On a Pi with Ubuntu 24.04 and ROS 2 Jazzy:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/phuwanat-vg/mission-runner/main/install.sh | bash
+```
+
+It asks for sudo once, then: clones the code into `~/ros2_ws/src/mission-runner`
+(or pulls it when it is already there), runs `rosdep install`, builds
+`mission_msgs` and `mission_runner`, adds `source ~/ros2_ws/install/setup.bash`
+to `~/.bashrc`, turns on linger, creates the **`mission` autostart service**
+(`bringup.launch.py`: mission_runner + foxglove_bridge) and prints the address
+to type into Mission Builder:
+
+```
+In Mission Builder, connect to one of:
+    ws://192.168.1.42:8765        (web page: http://192.168.1.42:8080)
+```
+
+Options go after `bash -s --`: `--ws ~/robot_ws`, `--domain 7` (ROS_DOMAIN_ID),
+`--project ~/line2.mproj` (imported each time the service starts),
+`--no-autostart`. Run the same command again to update: it pulls, rebuilds and
+restarts the service, keeping its arguments.
+
+Then continue with section 2 (configure), add your robot's own launch file as
+a service (section 3), and go through section 5. Sections 1 and 3 below are
+the same steps by hand.
+
+---
+
 ## 1. What the robot needs
 
 On the Pi (ROS 2 Jazzy):
 
 ```bash
-sudo apt install \
-  ros-$ROS_DISTRO-nav2-simple-commander \
-  ros-$ROS_DISTRO-foxglove-bridge \
-  ros-$ROS_DISTRO-nav2-map-server \
-  python3-aiohttp python3-jsonschema python3-yaml python3-paho-mqtt python3-croniter
-```
-
-Optional, only if a mission uses them: `pip install pymodbus gpiozero`.
-
-Build both packages into your workspace:
-
-```bash
 cd ~/ros2_ws/src
 git clone https://github.com/phuwanat-vg/mission-runner.git
-cd ~/ros2_ws && colcon build --packages-select mission_msgs mission_runner
+cd ~/ros2_ws
+rosdep install --from-paths src -y --ignore-src   # nav2_simple_commander, foxglove_bridge, python3-aiohttp, ...
+colcon build --packages-select mission_msgs mission_runner
 source install/setup.bash
 ```
+
+Optional, only if a mission uses them: `pip install pymodbus`,
+`sudo apt install python3-gpiozero` (also needed by `gpio` station answer nodes).
+For map files you also want `ros-$ROS_DISTRO-nav2-map-server`.
 
 `mission_msgs` is what makes `/mission/api` exist. Without it, Mission Builder connects and
 draws the map but cannot load, deploy or run missions, and says so.
@@ -65,10 +90,19 @@ run. A mission that references a connector you have not configured still loads
 
 ## 3. Start in this order, checking each one
 
+The robot runs two layers, so Nav2 keeps running when the mission layer
+restarts:
+
+| Layer | What | How it starts at boot |
+|---|---|---|
+| `robot` | your own launch file: drivers, localization, Nav2 | autostart service `robot` |
+| `mission` | `bringup.launch.py`: mission_runner + foxglove_bridge + station answer nodes | autostart service `mission`, after `robot` |
+
 **a. Nav2 and localisation, the way you normally do.** Confirm it works on its
 own before adding anything:
 
 ```bash
+ros2 launch my_robot robot.launch.py
 ros2 topic echo /map --once            # a map is published
 ros2 run tf2_ros tf2_echo map base_link   # the robot has a pose in the map
 ros2 lifecycle get /bt_navigator       # active
@@ -76,15 +110,24 @@ ros2 lifecycle get /bt_navigator       # active
 
 If any of those fail, stop here. Nothing below can work until they do.
 
-**b. foxglove_bridge**
+**b. The mission layer**
 
 ```bash
-ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765 include_hidden:=true   # iViz needs the hidden action topics
+ros2 launch mission_runner bringup.launch.py
 ```
 
-**c. mission_runner**
+That is mission_runner plus `foxglove_bridge` on port 8765 with
+`include_hidden:=true` (iViz needs the hidden action topics). Useful arguments:
+`project:=~/line2.mproj` imports a project first (an invalid project stops
+the runner with the errors printed), `stations:=~/.mission/stations.yaml`
+starts a `station_answer` node per station (see
+`runner/config/stations.example.yaml`), `bridge:=false` if you run the bridge
+yourself.
+
+The manual path still works:
 
 ```bash
+ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765 include_hidden:=true
 ros2 launch mission_runner mission_runner.launch.py
 ```
 
@@ -101,9 +144,25 @@ ros2 service list | grep mission     # /mission/api and /missions/<name>/run
 ros2 topic echo /mission/state --once
 ```
 
-**d. Mission Builder on Windows.** Enter `ws://<pi-ip>:8765` and press Connect.
+**c. Mission Builder on Windows.** Enter `ws://<pi-ip>:8765` and press Connect.
 If it cannot load missions, its message says whether the bridge has no
 `services` capability or `/mission/api` is missing.
+
+**d. Make both start at boot.** Once a and b work by hand, stop them (Ctrl+C)
+and turn them into services, in Mission Builder (**... menu → Robot startup**)
+or on the Pi:
+
+```bash
+sudo loginctl enable-linger $USER    # once, so user services start without a login
+mission_runner autostart add robot --launch ~/robot_ws/src/my_robot/launch/robot.launch.py --start
+mission_runner autostart add mission --package mission_runner --launch bringup.launch.py --after robot --start
+mission_runner autostart list
+mission_runner autostart log mission          # the journal of one service
+```
+
+No root is needed to add, change or remove them. `mission_runner` still waits
+for Nav2 to become active, so the order at boot is safe even when Nav2 takes a
+minute. `mission_runner autostart remove mission` takes a service away again.
 
 ---
 
@@ -115,12 +174,14 @@ USB stick or with `scp`, then imported with no GUI and no bridge:
 ```bash
 mission_runner project import ~/line3.mproj           # add or update
 mission_runner project import ~/line3.mproj --replace # also remove missions not in the project
-sudo systemctl restart mission_runner
+mission_runner autostart restart mission
 ```
 
 Everything is validated first; if any mission is invalid nothing is written
 and the errors are printed. `mission_runner project export robot.mproj` goes
-the other way.
+the other way. To import it every time the mission layer starts instead, give
+the service the argument:
+`mission_runner autostart add mission --arg project:=/home/pi/line3.mproj --start`.
 
 ---
 
@@ -187,6 +248,8 @@ check the run ends and the `on_abort` steps run.
 |---|---|
 | Mission Builder cannot load missions | `mission_msgs` is not built, or the bridge does not advertise services. `ros2 service list \| grep mission/api` |
 | Mission Builder shows no missions | The runner is not running, or it started before your workspace was sourced |
+| A service shows *Failed, restarted N times* | `mission_runner autostart log <name>`: usually a workspace that is not built, or a launch argument the file does not declare |
+| Services run after login but not after a reboot | linger is off: `sudo loginctl enable-linger $USER` |
 | Every mission hangs on the first step | `nav.wait_active` is waiting for a lifecycle node that never becomes active. Fix `nav2.wait_nodes` / `localizer` in `runner.yaml` |
 | "robot pose unknown" | TF has no `map` → `base_link`. Check `robot_frame`, and that localisation is running |
 | "site X not found in map Y" | The mission names a site that is not in the current map. Check `default_map` and the site names |
@@ -194,11 +257,12 @@ check the run ends and the `on_abort` steps run.
 | Goal rejected / fails immediately | Nav2 refused it: goal in an obstacle, outside the map, or a costmap not yet ready. The step's error carries Nav2's `error_code` |
 | Floor plan is a plain grey room | The map `file` path in `sites.json` does not exist on the robot |
 | Docking steps fail | `nav2_simple_commander` on your distro has no docking API, or no docking server is running. `GET /api/capabilities` reports which nav steps are available |
+| A `ros.request` is never answered | Nobody listens on its request topic: `ros2 topic info /station/<slug>/request`. Start a `station_answer` node (`stations:=` in `bringup.launch.py`) |
 
 Logs worth having open:
 
 ```bash
-ros2 launch mission_runner mission_runner.launch.py --ros-args --log-level debug
+mission_runner autostart log mission --lines 100
 ros2 topic echo /mission/event      # every step start/finish, as JSON
 curl http://<pi-ip>:8080/api/runs   # the run history with per-step results
 ```
@@ -211,8 +275,10 @@ you are next to the robot.
 
 ## 7. Before you leave it running unattended
 
-- Set up the systemd unit (`runner/deploy/mission_runner.service`) so the
-  runner starts at boot and restarts if it dies.
+- Make both layers autostart services (section 3d) and turn on linger, so the
+  robot comes back by itself after a power cut. (The older system unit
+  `runner/deploy/mission_runner.service` still works if you prefer a root-managed
+  service; do not use both.)
 - Give risky missions an `on_abort` that leaves the robot and the line in a
   safe state.
 - Add an interrupt for low battery (`examples/go_charge.json` shows the shape)
@@ -228,8 +294,9 @@ you are next to the robot.
 ## Known state of the code
 
 The interpreter, dispatcher, route planning, triggers, policies and the HTTP
-and ROS interfaces are covered by 65 automated tests, all against the simulated
-robot. `backends/nav2.py` and `connectors/ros.py` — the parts that actually
-touch rclpy and `nav2_simple_commander` — compile and are written against the
-documented API, but have not yet run against a real ROS 2 system. Treat step 5
-above as their first test, and expect to file a fix or two.
+and ROS interfaces are covered by automated tests, all against the simulated
+robot. `bringup.launch.py`, `station_answer`, the example nodes and autostart
+services with systemd have run in a ROS 2 Jazzy install (WSL, no Nav2 running).
+`backends/nav2.py` — the part that drives `nav2_simple_commander` — has not yet
+run against a real Nav2. Treat step 5 above as its first test, and expect to
+file a fix or two.

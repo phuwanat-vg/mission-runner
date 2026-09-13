@@ -103,6 +103,36 @@ draws a plain room around that map's sites instead and reports
 | `POST` | `/api/sim/topic` | sim only: `{topic, payload}` injects a ROS message into `ros.topic` triggers |
 | `POST` | `/api/sim/robot` | sim only: `{x, y, yaw_deg, battery, fail_next, blocked}` moves or breaks the fake robot |
 
+### Autostart services
+
+systemd **user** units that start a launch file at boot (the robot's own
+launch file with Nav2, and `mission_runner bringup.launch.py`). Full design in
+[`robot-startup.md`](robot-startup.md), section 4. Errors are
+`{error, errors: [str]}`.
+
+| Method | Path | Body / result |
+|---|---|---|
+| `GET` | `/api/autostart` | `{supported, reason?, enabled, user, linger, ros_distro, roots, self?, services: [Service]}`. Always allowed, also when disabled or unsupported |
+| `GET` | `/api/autostart/browse?path=` | `{path, parent \| null, roots, entries: [{name, path, kind: "dir" \| "file", launch}]}`; dirs first, hidden entries skipped; default path = first root; outside the roots `403` |
+| `PUT` | `/api/autostart/{name}` | `{description?, launch: {file} \| {package, file}, args?: ["name:=value"], workspaces?: [setup.bash], ros_domain_id?: int, rmw?: str, after?: [name], start_now?: bool}` → `200 Service` / `400 {errors}`. Writes the unit, the wrapper and the spec, `daemon-reload`, `enable`, `restart` with `start_now` |
+| `POST` | `/api/autostart/{name}/start` \| `stop` \| `restart` | `200 Service` |
+| `DELETE` | `/api/autostart/{name}` | `200 {removed, self}`: stop, disable, delete the files, `daemon-reload` |
+| `GET` | `/api/autostart/{name}/log?lines=200` | `{lines: [str]}` from the user journal |
+| `POST` | `/api/autostart/linger` | `{linger: bool, command?: "sudo loginctl enable-linger pi"}` |
+
+`Service` = `{name, unit, description, launch, args, workspaces, ros_domain_id,
+rmw, after, enabled, active: "active" | "activating" | "inactive" | "failed" | "unknown",
+sub_state, since: iso | null, restarts, main_pid: int | null, self}`.
+
+- Name `^[a-z][a-z0-9-]{0,31}$`; a file target must be a launch file under
+  `autostart.roots` (symlinks resolved); args are `name:=value` with a plain
+  name and a one-line value; everything reaches the wrapper `shlex.quote`d.
+- `autostart.enabled: false` in `runner.yaml`: every endpoint but `GET /api/autostart` answers `403`.
+- Not Linux, or no `systemctl --user`: `supported: false` with the reason, changes answer `409`.
+- `stop`, `restart` or `DELETE` of the service this runner runs in answers
+  first (`"self": true`) and acts 1 s later.
+- Offline on the robot: `mission_runner autostart list|add|start|stop|restart|log|remove|linger`.
+
 ### Preview
 
 Both endpoints take either `{"name": "<saved mission>"}` or
@@ -140,6 +170,7 @@ then one JSON object per event:
 | `robot` | `x, y, yaw_deg, frame, battery` (≤ 2 Hz) |
 | `missions.changed` | `names: []` |
 | `sites.changed` | |
+| `autostart.changed` | `name`: an autostart service was added, changed, started, stopped or removed |
 
 Clients may send `{"type": "ping"}`; the server answers `{"type": "pong"}`.
 
