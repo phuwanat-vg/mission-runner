@@ -697,10 +697,14 @@ class Interpreter:
         route = [start_name, *[leg.to for leg in legs]]
         ctx.last_site = goal_name
         bt = self._behavior_tree(p.get("behavior_tree"), ctx, step)
-        poses = [Pose(mapdef.sites[n].x, mapdef.sites[n].y, mapdef.sites[n].yaw_deg, frame) for n in route[1:]] or [
-            Pose(goal_site.x, goal_site.y, goal_site.yaw_deg, frame)
-        ]
-        poses[-1] = Pose(goal_site.x, goal_site.y, goal_site.yaw_deg, frame)
+        try:
+            spacing = float(resolve(p.get("waypoint_spacing_m", DEFAULT_WAYPOINT_SPACING_M), scope))
+        except (TypeError, ValueError):
+            raise StepFailed("'waypoint_spacing_m' must be a number") from None
+        if spacing < 0 or math.isnan(spacing):
+            raise StepFailed("'waypoint_spacing_m' must be 0 or more")
+        use_caps = bool(p.get("apply_speed_limits", False)) and any(leg.speed_mps for leg in legs)
+        plan = route_segments(mapdef, legs, goal_name, spacing, use_caps)
         result: dict[str, Any] = {
             "route": route,
             "legs": [leg.as_dict() for leg in legs],
@@ -709,29 +713,46 @@ class Interpreter:
             "to": goal_name,
             "through": through,
             "direct": direct_hops,
+            "waypoint_spacing_m": spacing,
         }
 
-        if bool(p.get("apply_speed_limits", False)) and any(leg.speed_mps for leg in legs):
-            node, param = _speed_param(s)
-            restored = False
-            try:
-                for leg, pose in zip(legs, poses):
-                    if leg.speed_mps:
-                        await self._nav(s.backend.set_params(node, {param: float(leg.speed_mps)}))
-                        restored = True
-                    elif restored:
-                        await self._nav(s.backend.set_params(node, {param: _default_speed(s)}))
-                        restored = False
-                    await self._nav(s.backend.go_to_pose(pose, bt, fb))
-            finally:
-                if restored:
-                    await self._nav(s.backend.set_params(node, {param: _default_speed(s)}))
-            return result
+        # FollowPath does not plan from where the robot is: drive to a strict
+        # first lane's start before following it.
+        if plan and plan[0].mode == "follow_path":
+            rs = s.backend.robot_state()
+            first = plan[0]
+            if rs.x is not None and rs.y is not None:
+                site = mapdef.sites[first.sites[0]]
+                if math.hypot(site.x - rs.x, site.y - rs.y) > STRICT_LEAD_IN_M:
+                    lead = RouteSegment("go_to_pose", [site.name], [Pose(site.x, site.y, first.lead_in_yaw_deg, frame)])
+                    plan.insert(0, lead)
+                    result["lead_in"] = site.name
+                    s.events.log("info", f"driving to '{site.name}' before following its strict lane", run_id=ctx.run.id, step_id=step.id)
+        result["segments"] = [seg.as_dict() for seg in plan]
 
-        if len(poses) == 1:
-            out = await self._nav(s.backend.go_to_pose(poses[0], bt, fb))
-        else:
-            out = await self._nav(s.backend.go_through_poses(poses, bt, fb))
+        controller_id = str(resolve(p.get("controller_id"), scope) or "")
+        goal_checker_id = str(resolve(p.get("goal_checker_id"), scope) or "")
+        node, param = _speed_param(s)
+        capped = False
+        out: Any = None
+        try:
+            for seg in plan:
+                if use_caps and seg.speed_mps:
+                    await self._nav(s.backend.set_params(node, {param: float(seg.speed_mps)}))
+                    capped = True
+                elif use_caps and capped:
+                    await self._nav(s.backend.set_params(node, {param: _default_speed(s)}))
+                    capped = False
+                if seg.mode == "follow_path":
+                    path = path_from_points(seg.poses, STRICT_PATH_SPACING_M, frame)
+                    out = await self._nav(s.backend.follow_path(path, controller_id, goal_checker_id, fb))
+                elif seg.mode == "go_to_pose":
+                    out = await self._nav(s.backend.go_to_pose(seg.poses[0], bt, fb))
+                else:
+                    out = await self._nav(s.backend.go_through_poses(seg.poses, bt, fb))
+        finally:
+            if capped:
+                await self._nav(s.backend.set_params(node, {param: _default_speed(s)}))
         result["result"] = out
         return result
 
@@ -852,6 +873,102 @@ class Interpreter:
         finally:
             ctx.loop_state.pop(step.id, None)
         return i
+
+
+#: nav.follow_route: default distance between extra waypoints along a lane
+DEFAULT_WAYPOINT_SPACING_M = 0.75
+#: point spacing of the FollowPath polyline for strict lanes
+STRICT_PATH_SPACING_M = 0.05
+#: a strict first lane starting farther than this from the robot gets a go_to_pose first
+STRICT_LEAD_IN_M = 0.3
+
+
+@dataclass
+class RouteSegment:
+    """One backend call of nav.follow_route.
+
+    ``poses`` are the goals for ``through_poses`` / ``go_to_pose``, and the
+    polyline vertices (sites) for ``follow_path``, whose reported pose count is
+    that of the densified path."""
+
+    mode: str  # through_poses | follow_path | go_to_pose
+    sites: list[str]
+    poses: list[Pose]
+    speed_mps: float | None = None
+    lead_in_yaw_deg: float = 0.0
+
+    def pose_count(self) -> int:
+        if self.mode == "follow_path":
+            return len(path_from_points(self.poses, STRICT_PATH_SPACING_M, self.poses[0].frame if self.poses else "map")["poses"])
+        return len(self.poses)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"mode": self.mode, "sites": list(self.sites), "poses": self.pose_count()}
+
+
+def _heading_deg(ax: float, ay: float, bx: float, by: float, fallback: float) -> float:
+    if math.hypot(bx - ax, by - ay) < 1e-9:
+        return fallback
+    return math.degrees(math.atan2(by - ay, bx - ax))
+
+
+def route_segments(mapdef: Any, legs: list[Any], goal_name: str, spacing_m: float, split_by_speed: bool = False) -> list[RouteSegment]:
+    """Turn planned legs into backend calls, in order.
+
+    Consecutive non-strict legs become one ``through_poses`` call with a pose
+    every ``spacing_m`` along each lane (start excluded, lane end included;
+    ``go_to_pose`` when that is a single pose). Consecutive strict legs become
+    one ``follow_path`` along the drawn lines. With ``split_by_speed`` runs are
+    also split where the lane speed cap changes. Poses face the direction of
+    travel; a node between two legs faces the next leg; the route's final pose
+    keeps the destination site's yaw."""
+    sites = mapdef.sites
+    frame = mapdef.frame
+    goal = sites[goal_name]
+    if not legs:
+        return [RouteSegment("go_to_pose", [goal_name], [Pose(goal.x, goal.y, goal.yaw_deg, frame)])]
+
+    def heading(i: int) -> float:
+        a, b = sites[legs[i].frm], sites[legs[i].to]
+        return _heading_deg(a.x, a.y, b.x, b.y, b.yaw_deg)
+
+    groups: list[tuple[int, int]] = []
+    start = 0
+    for i in range(1, len(legs) + 1):
+        if i == len(legs) or bool(legs[i].strict) != bool(legs[start].strict) or (split_by_speed and (legs[i].speed_mps or None) != (legs[start].speed_mps or None)):
+            groups.append((start, i))
+            start = i
+
+    out: list[RouteSegment] = []
+    last = len(legs) - 1
+    for lo, hi in groups:
+        names = [legs[lo].frm, *[legs[i].to for i in range(lo, hi)]]
+        speed = legs[lo].speed_mps if split_by_speed else None
+        if legs[lo].strict:
+            pts: list[Pose] = []
+            for i in range(lo, hi):
+                a = sites[legs[i].frm]
+                pts.append(Pose(a.x, a.y, heading(i), frame))
+            end = sites[legs[hi - 1].to]
+            end_yaw = goal.yaw_deg if hi - 1 == last else heading(hi - 1)
+            pts.append(Pose(end.x, end.y, end_yaw, frame))
+            out.append(RouteSegment("follow_path", names, pts, speed, heading(lo)))
+            continue
+        poses: list[Pose] = []
+        for i in range(lo, hi):
+            a, b = sites[legs[i].frm], sites[legs[i].to]
+            yaw = heading(i)
+            length = math.hypot(b.x - a.x, b.y - a.y)
+            if spacing_m > 0 and length > 0:
+                k = 1
+                while k * spacing_m < length - 1e-6:
+                    t = k * spacing_m / length
+                    poses.append(Pose(a.x + t * (b.x - a.x), a.y + t * (b.y - a.y), yaw, frame))
+                    k += 1
+            node_yaw = goal.yaw_deg if i == last else heading(i + 1)
+            poses.append(Pose(b.x, b.y, node_yaw, frame))
+        out.append(RouteSegment("go_to_pose" if len(poses) == 1 else "through_poses", names, poses, speed))
+    return out
 
 
 def _speed_param(services: Services) -> tuple[str, str]:

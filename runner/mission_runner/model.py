@@ -363,6 +363,8 @@ class Edge:
     blocked: bool = False
     cost: float = 1.0
     notes: str = ""
+    #: drive exactly along the drawn line with FollowPath instead of planning
+    strict: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"from": self.frm, "to": self.to}
@@ -372,6 +374,8 @@ class Edge:
             d["speed_mps"] = self.speed_mps
         if self.blocked:
             d["blocked"] = True
+        if self.strict:
+            d["strict"] = True
         if self.cost != 1.0:
             d["cost"] = self.cost
         if self.notes:
@@ -390,9 +394,10 @@ class RouteLeg:
     to: str
     length_m: float
     speed_mps: float | None = None
+    strict: bool = False
 
     def as_dict(self) -> dict[str, Any]:
-        return {"from": self.frm, "to": self.to, "length_m": round(self.length_m, 3), "speed_mps": self.speed_mps}
+        return {"from": self.frm, "to": self.to, "length_m": round(self.length_m, 3), "speed_mps": self.speed_mps, "strict": self.strict}
 
 
 @dataclass(slots=True)
@@ -486,7 +491,7 @@ class MapDef:
         while cur != start:
             before, edge = prev[cur]
             a, b = self.sites[before], self.sites[cur]
-            legs.append(RouteLeg(before, cur, math.hypot(b.x - a.x, b.y - a.y), edge.speed_mps))
+            legs.append(RouteLeg(before, cur, math.hypot(b.x - a.x, b.y - a.y), edge.speed_mps, edge.strict))
             cur = before
         legs.reverse()
         return legs
@@ -545,6 +550,7 @@ class SitesBook:
                     bool(e.get("blocked", False)),
                     float(e.get("cost", 1.0)),
                     str(e.get("notes", "")),
+                    bool(e.get("strict", False)),
                 )
                 for e in (m.get("edges") or [])
             ]

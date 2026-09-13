@@ -59,6 +59,7 @@
                 "bidirectional": { "type": "boolean", "default": true, "description": "false makes it one-way, from -> to." },
                 "speed_mps": { "type": "number", "exclusiveMinimum": 0, "description": "Optional cap while driving this lane." },
                 "blocked": { "type": "boolean", "default": false, "description": "Temporarily closed; the planner routes around it." },
+                "strict": { "type": "boolean", "default": false, "description": "Drive exactly along this lane with Nav2 FollowPath (no planner): the robot stops instead of detouring when the lane is blocked." },
                 "cost": { "type": "number", "exclusiveMinimum": 0, "description": "Multiplies the length when choosing a route (1 = neutral)." },
                 "notes": { "type": "string" }
               }

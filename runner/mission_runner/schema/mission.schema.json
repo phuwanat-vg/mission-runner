@@ -205,7 +205,10 @@
               "from": { "type": "string", "description": "Start site. Defaults to the site nearest the robot, even one with no lane leading away (then there is no route)." },
               "through": { "type": "array", "items": { "type": "string" }, "description": "Sites to pass in order before 'to'; every leg is planned on the route graph." },
               "on_no_route": { "type": "string", "enum": ["fail", "direct"], "default": "fail", "description": "fail: stop when the graph has no path. direct: drive straight there instead." },
-              "apply_speed_limits": { "type": "boolean", "default": false, "description": "Drive lane by lane, setting the controller's speed parameter for lanes that cap it." },
+              "apply_speed_limits": { "type": "boolean", "default": false, "description": "Set the controller's speed parameter before each lane that caps it, and back to the default after." },
+              "waypoint_spacing_m": { "type": "number", "minimum": 0, "default": 0.75, "description": "Extra waypoints along each lane every this many metres, so the planner stays on the lane. 0 = only the lane nodes." },
+              "controller_id": { "type": "string", "default": "", "description": "FollowPath controller for strict lanes (empty = Nav2 default)." },
+              "goal_checker_id": { "type": "string", "default": "", "description": "FollowPath goal checker for strict lanes (empty = Nav2 default)." },
               "behavior_tree": { "$ref": "#/$defs/behaviorTree" }
             }
           } },

@@ -19,6 +19,23 @@ def test_examples_are_valid(name, sites_doc):
     assert not warnings, [str(w) for w in warnings]
 
 
+def test_edge_strict_round_trip(sites_doc):
+    doc = copy.deepcopy(sites_doc)
+    doc["maps"]["demo_room"]["edges"] = [{"from": "Home", "to": "A", "strict": True}, {"from": "A", "to": "B"}]
+    book = SitesBook.from_dict(doc)
+    m = book.map("demo_room")
+    assert [e.strict for e in m.edges] == [True, False]
+    assert [leg.strict for leg in m.plan_route("Home", "B")] == [True, False]
+    assert book.to_dict()["maps"]["demo_room"]["edges"] == doc["maps"]["demo_room"]["edges"]
+    assert SitesBook.from_dict(book.to_dict()).to_dict() == book.to_dict()
+    doc["maps"]["demo_room"]["edges"][0]["strict"] = "yes"
+    with pytest.raises(MissionValidationError):
+        SitesBook.from_dict(doc)
+    step = {"schema": "mission/1", "name": "s", "flow": [{"type": "nav.follow_route", "to": "A", "waypoint_spacing_m": -1}]}
+    errors, _, _ = validate_mission(step)
+    assert errors
+
+
 def test_step_parsing():
     m = load_mission(example("pickup_job"))
     ids = [s.id for s in m.iter_steps()]

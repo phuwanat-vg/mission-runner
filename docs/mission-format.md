@@ -138,6 +138,28 @@ resets its pose. `POST /api/robot/initial_pose` and the `nav.set_initial_pose`
 step use the same confirmed method; each emits `robot.initial_pose`. See
 [robot-startup.md](robot-startup.md#home-as-initial-pose).
 
+### Lanes (route graph)
+
+`edges` in a map are the lanes `nav.follow_route` may drive:
+
+```jsonc
+"edges": [
+  { "from": "Home", "to": "A" },                                   // two-way
+  { "from": "A", "to": "B", "bidirectional": false },              // one-way, A -> B
+  { "from": "B", "to": "Conveyor1", "speed_mps": 0.3 },            // cap with apply_speed_limits
+  { "from": "Conveyor1", "to": "Rack3", "strict": true },          // drive exactly along the line
+  { "from": "D", "to": "Home", "blocked": true, "cost": 2, "notes": "" }
+]
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `bidirectional` | `true` | `false` = one-way, `from` -> `to` |
+| `speed_mps` | none | speed cap applied when the step sets `apply_speed_limits` |
+| `blocked` | `false` | closed; routes go around it |
+| `cost` | `1` | multiplies the length when choosing a route |
+| `strict` | `false` | follow the drawn line with Nav2 `FollowPath` instead of planning; the robot stops rather than detouring when the lane is blocked |
+
 Waypoint lists (`poses`, `points`, `goals`) accept the same forms; `points`
 additionally accepts `[x, y]` / `[x, y, yaw_deg]` arrays.
 
@@ -167,7 +189,7 @@ These wrap `nav2_simple_commander.BasicNavigator` one to one.
 |---|---|---|
 | `nav.wait_active` | `timeout_s` | `waitUntilNav2Active()` |
 | `nav.set_initial_pose` | `pose` | waits for the localizer, publishes `/initialpose` every second until AMCL confirms it (30 s max); once without a localizer |
-| `nav.follow_route` | `to`, `through[]`, `from`, `on_no_route`, `apply_speed_limits`, `behavior_tree` | plans on the map's route graph (one-way and blocked lanes honoured) and sends only on-lane waypoints with `goThroughPoses`; `value` = `{route, legs, length_m, from, to, through, direct}` |
+| `nav.follow_route` | `to`, `through[]`, `from`, `on_no_route`, `apply_speed_limits`, `waypoint_spacing_m` (default `0.75`), `controller_id`, `goal_checker_id`, `behavior_tree` | plans on the map's route graph (one-way and blocked lanes honoured). Runs of ordinary lanes go to `goThroughPoses` with a waypoint every `waypoint_spacing_m` along each lane (`0` = lane nodes only), facing the direction of travel (a node faces the next lane; the last pose keeps the destination's `yaw_deg`); a single pose uses `goToPose`. Runs of `strict` lanes go to `followPath` along the drawn lines (points every 0.05 m, `controller_id` / `goal_checker_id`, empty = Nav2 defaults); when the first lane is strict and the robot is more than 0.3 m from its start, a `goToPose` to that start comes first (`lead_in`). With `apply_speed_limits` each lane's `speed_mps` is set before its lanes and restored after. `value` = `{route, legs, length_m, from, to, through, direct, waypoint_spacing_m, segments: [{mode: through_poses \| follow_path \| go_to_pose, sites, poses}], lead_in?, result}` |
 | `nav.go_to_pose` | `pose`, `behavior_tree` | `goToPose()`; `value` = final feedback |
 | `nav.go_through_poses` | `poses[]`, `behavior_tree` | `goThroughPoses()` |
 | `nav.follow_waypoints` | `poses[]` | `followWaypoints()`; `value.missed` = indexes that failed |

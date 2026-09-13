@@ -582,6 +582,143 @@ async def test_follow_route_applies_edge_speed_limits(harness):
     assert names[-1][1]["FollowPath.max_vel_x"] == 0.5  # restored
 
 
+def _record_nav(harness) -> list:
+    """Wrap the sim backend so a test sees every nav / param call, in order."""
+    b = harness.r.backend
+    calls: list = []
+    orig = {n: getattr(b, n) for n in ("go_to_pose", "go_through_poses", "follow_path", "set_params")}
+
+    async def go_to_pose(pose, bt, fb):
+        calls.append(("go_to_pose", [pose]))
+        return await orig["go_to_pose"](pose, bt, fb)
+
+    async def go_through_poses(poses, bt, fb):
+        calls.append(("through_poses", list(poses)))
+        return await orig["go_through_poses"](poses, bt, fb)
+
+    async def follow_path(path, controller_id, goal_checker_id, fb):
+        calls.append(("follow_path", path, controller_id, goal_checker_id))
+        return await orig["follow_path"](path, controller_id, goal_checker_id, fb)
+
+    async def set_params(node, params):
+        calls.append(("param", params))
+        return await orig["set_params"](node, params)
+
+    b.go_to_pose, b.go_through_poses, b.follow_path, b.set_params = go_to_pose, go_through_poses, follow_path, set_params
+    return calls
+
+
+def _set_edges(harness, edges: list) -> None:
+    sites = harness.r.store.sites.to_dict()
+    sites["maps"]["demo_room"]["edges"] = edges
+    harness.r.store.save_sites(sites)
+
+
+def _value(harness, step_id: str = "go") -> dict:
+    return [e["result"]["value"] for e in harness.events if e["type"] == "step.finished" and e["step_id"] == step_id][-1]
+
+
+async def test_follow_route_densifies_lanes(harness):
+    # Home (0,0) -> A (1,1): 1.414 m; A -> B (1,0.5): 0.5 m; B yaw -180
+    _set_edges(harness, [{"from": "Home", "to": "A"}, {"from": "A", "to": "B"}])
+    calls = _record_nav(harness)
+    await harness.r.deploy_mission(mission("dense", [{"id": "go", "type": "nav.follow_route", "from": "Home", "to": "B", "waypoint_spacing_m": 0.5}]))
+    run = await harness.run("dense")
+    assert await harness.wait_idle(60)
+    assert run.status == RunStatus.SUCCEEDED, run.error
+    assert [c[0] for c in calls] == ["through_poses"]
+    poses = calls[0][1]
+    # 0.5 and 1.0 along Home->A, node A, then node B (A->B is exactly one spacing long)
+    assert len(poses) == 4
+    assert [round(p.yaw_deg) for p in poses] == [45, 45, -90, -180]
+    assert abs(poses[0].x - 0.5 / 2**0.5) < 1e-9 and (poses[2].x, poses[2].y) == (1.0, 1.0) and (poses[3].x, poses[3].y) == (1.0, 0.5)
+    value = _value(harness)
+    assert value["waypoint_spacing_m"] == 0.5
+    assert value["segments"] == [{"mode": "through_poses", "sites": ["Home", "A", "B"], "poses": 4}]
+    robot = harness.r.robot_scope()
+    assert abs(robot["x"] - 1.0) < 1e-6 and abs(robot["y"] - 0.5) < 1e-6 and abs(abs(robot["yaw_deg"]) - 180) < 1e-6
+
+
+async def test_follow_route_spacing_zero_sends_only_nodes(harness):
+    _set_edges(harness, [{"from": "Home", "to": "A"}, {"from": "A", "to": "B"}])
+    calls = _record_nav(harness)
+    await harness.r.deploy_mission(mission("nodes", [{"id": "go", "type": "nav.follow_route", "from": "Home", "to": "B", "waypoint_spacing_m": 0}]))
+    run = await harness.run("nodes")
+    assert await harness.wait_idle(60)
+    assert run.status == RunStatus.SUCCEEDED, run.error
+    assert [(p.x, p.y) for p in calls[0][1]] == [(1.0, 1.0), (1.0, 0.5)]
+    assert _value(harness)["segments"] == [{"mode": "through_poses", "sites": ["Home", "A", "B"], "poses": 2}]
+
+
+async def test_follow_route_strict_lane_in_the_middle(harness):
+    _set_edges(harness, [
+        {"from": "Home", "to": "A"}, {"from": "A", "to": "B", "strict": True},
+        {"from": "B", "to": "Conveyor1"}, {"from": "Conveyor1", "to": "Rack3"},
+    ])
+    calls = _record_nav(harness)
+    await harness.r.deploy_mission(mission("strict", [{"id": "go", "type": "nav.follow_route", "from": "Home", "to": "Rack3", "controller_id": "Exact"}]))
+    run = await harness.run("strict")
+    assert await harness.wait_idle(90)
+    assert run.status == RunStatus.SUCCEEDED, run.error
+    value = _value(harness)
+    assert [(s["mode"], s["sites"]) for s in value["segments"]] == [
+        ("through_poses", ["Home", "A"]), ("follow_path", ["A", "B"]), ("through_poses", ["B", "Conveyor1", "Rack3"]),
+    ]
+    assert "lead_in" not in value and value["waypoint_spacing_m"] == 0.75
+    assert [c[0] for c in calls] == ["through_poses", "follow_path", "through_poses"]
+    # the node before the strict lane faces along it
+    assert round(calls[0][1][-1].yaw_deg) == -90
+    _, path, controller_id, goal_checker_id = calls[1]
+    assert controller_id == "Exact" and goal_checker_id == ""
+    pts = path["poses"]
+    assert path["frame"] == "map" and len(pts) == value["segments"][1]["poses"] > 5
+    assert all(abs(p["x"] - 1.0) < 1e-9 and round(p["yaw_deg"]) == -90 for p in pts)
+    assert (pts[0]["y"], pts[-1]["y"]) == (1.0, 0.5)
+    robot = harness.r.robot_scope()
+    assert abs(robot["x"] - 3.0) < 1e-6 and abs(robot["y"] + 3.0) < 1e-6 and abs(robot["yaw_deg"] + 90) < 1e-6
+
+
+async def test_follow_route_strict_first_lane_drives_to_its_start(harness):
+    from mission_runner.backends.base import Pose
+
+    _set_edges(harness, [{"from": "Home", "to": "A", "strict": True}])
+    harness.r.backend.set_pose(Pose(-1.0, 0.0, 0.0))
+    calls = _record_nav(harness)
+    await harness.r.deploy_mission(mission("lead", [{"id": "go", "type": "nav.follow_route", "from": "Home", "to": "A"}]))
+    run = await harness.run("lead")
+    assert await harness.wait_idle(60)
+    assert run.status == RunStatus.SUCCEEDED, run.error
+    assert [c[0] for c in calls] == ["go_to_pose", "follow_path"]
+    assert (calls[0][1][0].x, calls[0][1][0].y, round(calls[0][1][0].yaw_deg)) == (0.0, 0.0, 45)
+    value = _value(harness)
+    assert value["lead_in"] == "Home"
+    assert [s["mode"] for s in value["segments"]] == ["go_to_pose", "follow_path"]
+    assert calls[1][1]["poses"][-1]["yaw_deg"] == 0  # A's own yaw at the destination
+    robot = harness.r.robot_scope()
+    assert abs(robot["x"] - 1.0) < 1e-6 and abs(robot["y"] - 1.0) < 1e-6
+
+
+async def test_follow_route_speed_caps_per_lane_with_strict(harness):
+    _set_edges(harness, [
+        {"from": "Home", "to": "A", "speed_mps": 0.2}, {"from": "A", "to": "B"},
+        {"from": "B", "to": "C", "speed_mps": 0.3, "strict": True},
+    ])
+    calls = _record_nav(harness)
+    await harness.r.deploy_mission(mission("caps", [{"id": "go", "type": "nav.follow_route", "from": "Home", "to": "C", "apply_speed_limits": True}]))
+    run = await harness.run("caps")
+    assert await harness.wait_idle(90)
+    assert run.status == RunStatus.SUCCEEDED, run.error
+    seq = [c[1]["FollowPath.max_vel_x"] if c[0] == "param" else c[0] for c in calls]
+    assert seq == [0.2, "through_poses", 0.5, "go_to_pose", 0.3, "follow_path", 0.5]
+    assert [s["sites"] for s in _value(harness)["segments"]] == [["Home", "A"], ["A", "B"], ["B", "C"]]
+
+
+async def test_edge_strict_in_project_export(harness):
+    _set_edges(harness, [{"from": "Home", "to": "A", "strict": True}, {"from": "A", "to": "B"}])
+    edges = harness.r.export_project()["sites"]["maps"]["demo_room"]["edges"]
+    assert edges == [{"from": "Home", "to": "A", "strict": True}, {"from": "A", "to": "B"}]
+
+
 async def test_call_api_tunnel(harness):
     """The ROS /mission/api service forwards to this; a GUI on foxglove_bridge
     reaches every endpoint through it."""

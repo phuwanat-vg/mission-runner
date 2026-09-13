@@ -72,8 +72,29 @@ Schema (`mission.schema.json`):
   "through": ["B", "Conveyor1"],      // optional, visited in order first
   "from": "Home",                     // optional; default: the point nearest the robot
   "on_no_route": "fail",              // or "direct"
-  "apply_speed_limits": false }
+  "apply_speed_limits": false,
+  "waypoint_spacing_m": 0.75,         // extra waypoints along lanes; 0 = lane nodes only
+  "controller_id": "",                // FollowPath controller for strict lanes (optional)
+  "goal_checker_id": "" }             // FollowPath goal checker for strict lanes (optional)
 ```
+
+### Strict lanes
+
+Between two waypoints the Nav2 global planner is free, so on a long lane the
+robot can cut a corner or swing off the drawn line. Two ways to keep it there:
+
+- **Dense waypoints** (default): `nav.follow_route` adds a waypoint every
+  `waypoint_spacing_m` (0.75 m) along each lane, facing along the lane. The
+  planner stays close to the lane but can still go around an obstacle.
+- **Strict lane** (`"strict": true` on the edge): consecutive strict lanes are
+  driven with `FollowPath` along the drawn line itself (a point every 0.05 m).
+  There is no planner, so the robot follows the line exactly and **stops rather
+  than detouring** when something blocks it. If the route starts with a strict
+  lane and the robot is more than 0.3 m from its start, the runner first drives
+  there with `NavigateToPose`.
+
+The step result lists what was sent, in order:
+`"segments": [{"mode": "through_poses" | "follow_path" | "go_to_pose", "sites": [...], "poses": N}]`.
 
 ---
 

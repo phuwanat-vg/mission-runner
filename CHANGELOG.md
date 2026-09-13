@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Routes stay on the lanes**: `nav.follow_route` no longer lets the planner
+  cut corners between distant lane nodes
+  - `waypoint_spacing_m` (default 0.75, `0` = lane nodes only, as before): a
+    waypoint every that many metres along each lane, facing along it; nodes face
+    the next lane, the last pose keeps the destination's yaw
+  - `sites/1` edges take `"strict": true`: consecutive strict lanes are driven
+    with `FollowPath` along the drawn line (0.05 m points, optional step
+    `controller_id` / `goal_checker_id`); a strict first lane more than 0.3 m
+    from the robot gets a `goToPose` to its start first (`lead_in`)
+  - the route is sent as consecutive segments; `value.segments` =
+    `[{mode: through_poses|follow_path|go_to_pose, sites, poses}]`, plus
+    `waypoint_spacing_m`; `legs[]` carry `strict`
+  - `apply_speed_limits` sets each lane's cap before its segment (segments split
+    where the cap changes) instead of driving lane by lane with `goToPose`
+
 - **Home as initial pose**: `sites/1` maps take
   `"initial_pose": {"site": "Home", "on_start": true}` (the site must exist in that
   map). On start, when the robot is not localized (no map -> robot TF within ~3 s),
